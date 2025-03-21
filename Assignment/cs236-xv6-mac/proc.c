@@ -313,34 +313,53 @@ wait(void)
 
 
 // in proc.c
+
+
+// send_signal_to_all(int sig) is responsible for sending a signal (SIGINT, SIGBG, SIGFG, or SIGCUSTOM)
+//  to all user processes (excluding init and shell).
 void send_signal_to_all(int sig){
     struct proc *p;
 
     acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-        if(p->pid > 2){
-            p->pending_signal = sig;
-            
-            if(sig == SIGINT){
-                p->killed = 1; // mark for termination
-            }
-            else if(sig == SIGBG){
-                if(p->state == RUNNING || p->state == RUNNABLE)
-                    p->state = SLEEPING; // suspend the process
-            }
-            else if(sig == SIGFG){
+         if (p->pid == 1 || p->pid == 2) continue;
+         if(p->state == UNUSED) continue;
+         cprintf("SIG %d to pid=%d name=%s state=%d\n", sig, p->pid, p->name, p->state);
+          switch(sig) {
+            case SIGINT:
+                p->killed = 1;   // terminate the process
                 if(p->state == SLEEPING)
-                    p->state = RUNNABLE; // resume the process
-            }
-            else if(sig == SIGSTP){
-                if(p->state == RUNNING || p->state == RUNNABLE)
-                    p->state = SLEEPING; // suspend process
-            }
-            else if(sig == SIGCUSTOM){
-                // invoke custom handler if registered
-                // handler execution should be managed in trap.c
-            }
+                    p->state = RUNNABLE; // explicitly wake up to terminate
+                cprintf(" -> Terminatedc pid=%d name=%s\n", p->pid, p->name);    
+                break;
+
+            case SIGBG:
+                  if(p->state == RUNNING || p->state == RUNNABLE){
+                      p->state = SLEEPING;
+                    //  p->suspended = 1;
+                      cprintf(" -> Suspended pid=%d name=%s\n", p->pid, p->name);
+                    }
+                  break;
+
+            case SIGFG:
+                  if(p->state == SLEEPING)
+                    { 
+                    // p->suspended = 0;  
+                    cprintf(" -> Resumed pid=%d name=%s\n", p->pid, p->name);  
+                    p->state = RUNNABLE;  // resume suspended process
+                    }
+                  break;
+
+            case SIGCUSTOM:
+                 if(p->signal_handler){
+                     p->pending_signal = SIGCUSTOM;
+                     if(p->state == SLEEPING)
+                        p->state = RUNNABLE;
+                }
+                break;
         }
+              
+
     }
     release(&ptable.lock);
 }
@@ -358,6 +377,10 @@ void send_signal_to_all(int sig){
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
+
+
+
+
 void
 scheduler(void)
 {
@@ -372,16 +395,19 @@ scheduler(void)
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
-    
+      // if(p->state != RUNNABLE )
+      //   continue;
+      if(p->state != RUNNABLE  )
+                 continue;
+      
+
     // Check pending signals
       if(p->pending_signal == SIGINT){
         p->killed = 1; 
         p->pending_signal = 0;
         continue; // Process killed
       }
-      else if(p->pending_signal == SIGSTP){
+      else if(p->pending_signal == SIGBG){
         p->state = SLEEPING; 
         p->pending_signal = 0;
         continue; // Process suspended
@@ -511,6 +537,11 @@ sleep(void *chan, struct spinlock *lk)
   // Tidy up.
   p->chan = 0;
 
+   if(p->killed){
+        release(&ptable.lock);
+        exit();
+    }
+
   // Reacquire original lock.
   if(lk != &ptable.lock){  //DOC: sleeplock2
     release(&ptable.lock);
@@ -576,7 +607,8 @@ procdump(void)
   [SLEEPING]  "sleep ",
   [RUNNABLE]  "runble",
   [RUNNING]   "run   ",
-  [ZOMBIE]    "zombie"
+  [ZOMBIE]    "zombie",
+  [STOPPED]   "stopped"
   };
   int i;
   struct proc *p;

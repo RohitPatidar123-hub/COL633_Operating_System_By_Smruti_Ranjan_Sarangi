@@ -9,12 +9,22 @@
 
 
 // in sysproc.c
+// int sys_signal(void) {
+//     int handler;
+//     if(argint(0, &handler) < 0)
+//         return -1;
+
+//     myproc()->signal_handler = (void*)handler;
+//     return 0;
+// }
+
 int sys_signal(void) {
-    int handler;
-    if(argint(0, &handler) < 0)
+    void (*handler)(void);
+    
+    if (argptr(0, (void*)&handler, sizeof(void*)) < 0)
         return -1;
 
-    myproc()->signal_handler = (void*)handler;
+    myproc()->signal_handler = handler;
     return 0;
 }
 

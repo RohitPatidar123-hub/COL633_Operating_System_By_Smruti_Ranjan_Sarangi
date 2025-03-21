@@ -71,10 +71,11 @@ kbdgetc(void)
 
 void kbdintr(void) {
   uchar c;
-  //  acquire(&cons.lock);
+  // extern struct { struct spinlock lock; int locking; } cons;
+  // acquire(&cons.lock);
   c = kbdgetc();
   if(c == 0){
-//  release(&cons.lock);
+    // release(&cons.lock);
     return;
   }
 
@@ -89,10 +90,10 @@ void kbdintr(void) {
             send_signal_to_all(SIGBG);
             break;
 
-        case 0x1A: // Ctrl+Z
-            cprintf("Ctrl -Z is detected by xv6\n");
-            send_signal_to_all(SIGSTP);
-            break;
+        // case 0x1A: // Ctrl+Z
+        //     cprintf("Ctrl -Z is detected by xv6\n");
+        //     send_signal_to_all(SIGSTP);
+        //     break;
 
         case 0x06: // Ctrl+F
             cprintf("Ctrl -F is detected by xv6\n");
@@ -108,6 +109,6 @@ void kbdintr(void) {
             consoleintr(kbdgetc);
             break;
     }
-  // release(&cons.lock);
+  //  release(&cons.lock);
 }
 

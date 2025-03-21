@@ -1,9 +1,14 @@
 // This file contains the structure of the process and the cpu.
-#define SIGINT    1
-#define SIGBG     2
-#define SIGSTP    3
-#define SIGFG     4
-#define SIGCUSTOM 5
+// #define SIGINT    1
+// #define SIGBG     2
+// #define SIGSTP    3
+// #define SIGFG     4
+// #define SIGCUSTOM 5
+
+#define SIGINT     1  // Ctrl+C
+#define SIGBG      2  // Ctrl+B
+#define SIGFG      3  // Ctrl+F
+#define SIGCUSTOM  4  // Ctrl+G
 
 
 struct cpu {
@@ -45,8 +50,13 @@ enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE , STOPPED};
 // Per-process state
 struct proc {
   uint sz;                    // Size of process memory (bytes)
+
   int pending_signal;                  // pending signal
   void (*signal_handler)(void);        // custom signal handler
+ 
+
+  uint backup_eip;              // 🔥 Save original eip here
+  int in_handler;        // flag to prevent re-entering the handler
   pde_t* pgdir;                // Page table
   char *kstack;                // Bottom of kernel stack for this process
   enum procstate state;        // Process state
