@@ -100,23 +100,7 @@ trap(struct trapframe *tf)
   if(myproc() && myproc()->killed && (tf->cs&3) == DPL_USER)
     exit();
 
- // Just before returning to user space
-// if (myproc() && myproc()->pending_signal == SIGCUSTOM &&
-//     myproc()->signal_handler && !myproc()->in_handler) {
 
-//     myproc()->pending_signal = 0;
-//     myproc()->in_handler = 1;
-
-//     // Save original eip so handler can return
-//     myproc()->backup_eip = myproc()->tf->eip;
-
-//     // Push backup_eip on the stack so handler can 'ret' into it
-//     myproc()->tf->esp -= 4;
-//     *((uint*)myproc()->tf->esp) = myproc()->backup_eip;
-
-//     // Set eip to start executing signal handler
-//     myproc()->tf->eip = (uint)myproc()->signal_handler;
-// }
 
 
   if(myproc() && myproc()->pending_signal == SIGCUSTOM && myproc()->signal_handler) {
@@ -129,9 +113,9 @@ trap(struct trapframe *tf)
 
 
 
-  if (myproc() && myproc()->signal_handler) {
-    myproc()->tf->eip = (uint)myproc()->signal_handler;
-}
+//   if (myproc() && myproc()->signal_handler) {
+//     myproc()->tf->eip = (uint)myproc()->signal_handler;
+// }
 
 
   // Force process to give up CPU on clock tick.

@@ -336,7 +336,7 @@ void send_signal_to_all(int sig){
             case SIGBG:
                   if(p->state == RUNNING || p->state == RUNNABLE){
                       p->state = SLEEPING;
-                    //  p->suspended = 1;
+                      p->suspended = 1;
                       cprintf(" -> Suspended pid=%d name=%s\n", p->pid, p->name);
                     }
                   break;
@@ -344,7 +344,7 @@ void send_signal_to_all(int sig){
             case SIGFG:
                   if(p->state == SLEEPING)
                     { 
-                    // p->suspended = 0;  
+                     p->suspended = 0;  
                     cprintf(" -> Resumed pid=%d name=%s\n", p->pid, p->name);  
                     p->state = RUNNABLE;  // resume suspended process
                     }
@@ -397,7 +397,7 @@ scheduler(void)
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       // if(p->state != RUNNABLE )
       //   continue;
-      if(p->state != RUNNABLE  )
+      if(p->state != RUNNABLE || p->suspended )
                  continue;
       
 
@@ -409,7 +409,7 @@ scheduler(void)
       }
       else if(p->pending_signal == SIGBG){
         p->state = SLEEPING; 
-        p->pending_signal = 0;
+        p->pending_signal = 1;
         continue; // Process suspended
       }
       else if(p->pending_signal == SIGFG){

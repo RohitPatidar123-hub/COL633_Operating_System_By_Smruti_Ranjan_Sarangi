@@ -53,7 +53,7 @@ struct proc {
 
   int pending_signal;                  // pending signal
   void (*signal_handler)(void);        // custom signal handler
- 
+  int suspended; 
 
   uint backup_eip;              // 🔥 Save original eip here
   int in_handler;        // flag to prevent re-entering the handler
