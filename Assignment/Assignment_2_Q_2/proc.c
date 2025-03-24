@@ -7,7 +7,7 @@
 #include "proc.h"
 #include "spinlock.h"
 
-struct {
+extern struct {
   struct spinlock lock;
   struct proc proc[NPROC];
 } ptable;
@@ -185,16 +185,22 @@ fork(void)
   struct proc *curproc = myproc();
 
 
-    extern uint ticks;
-    np->creation_time = ticks;
-    np->first_scheduled = 0; // not scheduled yet
-    np->total_run_time = 0;
-    np->num_context_switches = 0;
+
 
   // Allocate process.
   if((np = allocproc()) == 0){
     return -1;
   }
+//.............................................................................
+
+np->creation_time = ticks;
+np->has_started = 0;
+np->total_run_time = 0;
+np->total_wait_time = 0;
+np->context_switches = 0;
+
+
+//.............................................................................    
 
   // Copy process state from proc.
   if((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0){
@@ -267,9 +273,27 @@ exit(void)
         wakeup1(initproc);
     }
   }
- 
-  p->end_time = ticks;
-// Next step is to print the stats: TAT, WT, RT, #CS
+//............................................................................. 
+
+curproc->end_time = ticks;
+
+int tat = curproc->end_time - curproc->creation_time;
+int wt = curproc->total_wait_time;
+int rt = curproc->first_run_time - curproc->creation_time;
+int cs = curproc->context_switches;
+
+cprintf("PID: %d\n", curproc->pid);
+cprintf("TAT: %d\n", tat);
+cprintf("WT: %d\n", wt);
+cprintf("RT: %d\n", rt);
+cprintf("#CS: %d\n", cs);
+
+
+    
+     
+
+
+//.............................................................................
 
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;
@@ -554,10 +578,53 @@ int sys_scheduler_start(void) {
 //  - swtch to start running that process
 //  - eventually that process transfers control
 //      via swtch back to the scheduler.
-void
-scheduler(void)
+
+
+
+// void
+// scheduler(void)
+// {
+//   struct proc *p;
+//   struct cpu *c = mycpu();
+//   c->proc = 0;
+  
+//   for(;;){
+//     // Enable interrupts on this processor.
+//     sti();
+
+//     // Loop over process table looking for process to run.
+//     acquire(&ptable.lock);
+//     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+//       if(p->state != RUNNABLE)
+//         continue;
+
+
+   
+     
+//       // Switch to chosen process.  It is the process's job
+//       // to release ptable.lock and then reacquire it
+//       // before jumping back to us.
+//       c->proc = p;
+//       switchuvm(p);
+//       p->state = RUNNING;
+
+//       swtch(&(c->scheduler), p->context);
+//       switchkvm();
+
+//       // Process is done running for now.
+//       // It should have changed its p->state before coming back.
+//       c->proc = 0;
+//     }
+//     release(&ptable.lock);
+
+//   }
+// }
+
+
+
+void scheduler(void)
 {
-  struct proc *p;
+  struct proc *p, *chosen = 0;
   struct cpu *c = mycpu();
   c->proc = 0;
   
@@ -565,27 +632,53 @@ scheduler(void)
     // Enable interrupts on this processor.
     sti();
 
-    // Loop over process table looking for process to run.
+    // Acquire ptable.lock to scan the process table.
     acquire(&ptable.lock);
+
+    // First, select one RUNNABLE process to run.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
       if(p->state != RUNNABLE)
         continue;
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
+      // PROFILER: For the chosen process, if it hasn't started yet, record its first run time.
+      if(p->has_started == 0) {
+        p->first_run_time = ticks;
+        p->has_started = 1;
+      }
+      // PROFILER: Increment context switch count for each time a process is scheduled.
+      p->context_switches++;
+      
+      chosen = p;
+      break;  // select the first RUNNABLE process
+    }
 
-      swtch(&(c->scheduler), p->context);
+    // PROFILER: For every process in RUNNABLE state that was not chosen,
+    // increment its waiting time (this represents the passage of one scheduler tick).
+    if(chosen){
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if(p->state == RUNNABLE && p != chosen)
+          p->total_wait_time++;
+      }
+    }
+
+    // If a process was selected, switch to it.
+    if(chosen){
+      c->proc = chosen;
+      switchuvm(chosen);
+      chosen->state = RUNNING;
+
+      // Context switch: scheduler yields control to chosen process.
+      swtch(&(c->scheduler), chosen->context);
       switchkvm();
 
+      // PROFILER: After the process yields (its time slice ends),
+      // increment its total run time (assume one tick per slice for simplicity).
+      chosen->total_run_time++;
+
       // Process is done running for now.
-      // It should have changed its p->state before coming back.
       c->proc = 0;
+      chosen = 0; // reset chosen pointer for the next iteration
     }
     release(&ptable.lock);
-
   }
 }

@@ -186,6 +186,11 @@ UPROGS=\
 	_test_sched3\
 	_test_sched4\
 	_test_sched5\
+	_test_sched6\
+	_test_sched7\
+	_test_sched8\
+	_test_sched9\
+
 	
 
 fs.img: mkfs README $(UPROGS)

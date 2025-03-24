@@ -43,14 +43,13 @@ struct proc {
   int start_time;           // Time when the process was actually started
  
 
-  // In proc.h, within struct proc:
-int creation_time;        // Ticks when process is forked
-int start_time;           // Ticks when process runs (on CPU) for the first time
-int end_time;             // Ticks when process finishes (exit)
-int total_run_time;       // Total CPU ticks used
-int num_context_switches; // # of times this process was context-switched to RUNNING
-
-int first_scheduled;      // Flag: 1 if we've scheduled for the first time
+int creation_time;       // Time when process was created
+int end_time;            // Time when process exited
+int first_run_time;      // Time when process first got scheduled
+int total_run_time;      // Total ticks the process actually ran
+int total_wait_time;     // Accumulate when not running
+int context_switches;    // Total number of times scheduled
+int has_started;         // Flag to mark if it has started once
 
 // int last_scheduled;       // Ticks when we last scheduled this process
 // int total_wait_time;      // Total ticks this process waited in RUNNABLE state
