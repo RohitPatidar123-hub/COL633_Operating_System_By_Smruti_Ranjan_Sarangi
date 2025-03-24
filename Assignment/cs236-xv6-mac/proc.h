@@ -45,18 +45,19 @@ struct context {
   uint eip;
 };
 
-enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE , STOPPED};
+enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE , STOPPED, SUSPENDED};
 
 // Per-process state
 struct proc {
   uint sz;                    // Size of process memory (bytes)
-
+  int control_flag;           // Control flag for SIGBG
   int pending_signal;                  // pending signal
   void (*signal_handler)(void);        // custom signal handler
   int suspended; 
-
+  int in_signal_handler;        // Flag to avoid reentrancy.
   uint backup_eip;              // 🔥 Save original eip here
   int in_handler;        // flag to prevent re-entering the handler
+  
   pde_t* pgdir;                // Page table
   char *kstack;                // Bottom of kernel stack for this process
   enum procstate state;        // Process state

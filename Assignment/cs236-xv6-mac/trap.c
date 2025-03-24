@@ -103,6 +103,8 @@ trap(struct trapframe *tf)
 
 
 
+
+
   if(myproc() && myproc()->pending_signal == SIGCUSTOM && myproc()->signal_handler) {
     myproc()->pending_signal = 0; // clear pending signal
         // Save current instruction pointer (eip)

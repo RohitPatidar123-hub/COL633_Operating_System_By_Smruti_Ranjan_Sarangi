@@ -24,8 +24,7 @@ int main()
         printf(1, "Child started with pid: %d\n", getpid());
         while (1) {
        printf(1, "Hi there , I am child\n");
-       fib (35);
-       sleep(10);   
+       fib (35);  
        }
     }
 }

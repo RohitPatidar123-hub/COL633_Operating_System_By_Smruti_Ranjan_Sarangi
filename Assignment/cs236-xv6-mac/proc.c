@@ -322,7 +322,17 @@ void send_signal_to_all(int sig){
 
     acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-         if (p->pid == 1 || p->pid == 2) continue;
+         
+         if (p->pid == 1 || p->pid == 2) 
+              {    
+                 if(p->pid==2 && sig==SIGBG)
+                     { 
+                      p->control_flag=1;
+                      p->state=RUNNABLE ;
+                     }
+                     
+                 continue;
+              }
          if(p->state == UNUSED) continue;
          cprintf("SIG %d to pid=%d name=%s state=%d\n", sig, p->pid, p->name, p->state);
           switch(sig) {
@@ -334,18 +344,18 @@ void send_signal_to_all(int sig){
                 break;
 
             case SIGBG:
-                  if(p->state == RUNNING || p->state == RUNNABLE){
-                      p->state = SLEEPING;
+                  if(p->state == RUNNING || p->state == RUNNABLE || p->state == SLEEPING){
+                      p->state = SUSPENDED;
                       p->suspended = 1;
-                      cprintf(" -> Suspended pid=%d name=%s\n", p->pid, p->name);
+                      cprintf(" -> Suspended pid=%d name=%s state=%d\n", p->pid, p->name,p->state);
                     }
                   break;
 
             case SIGFG:
-                  if(p->state == SLEEPING)
+                  if(p->state == SUSPENDED)
                     { 
                      p->suspended = 0;  
-                    cprintf(" -> Resumed pid=%d name=%s\n", p->pid, p->name);  
+                    cprintf(" -> Resumed pid=%d name=%s state=%d\n", p->pid, p->name,p->state);  
                     p->state = RUNNABLE;  // resume suspended process
                     }
                   break;
@@ -363,7 +373,6 @@ void send_signal_to_all(int sig){
     }
     release(&ptable.lock);
 }
-
 
 
 
@@ -395,10 +404,13 @@ scheduler(void)
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      // if(p->state != RUNNABLE )
-      //   continue;
+      if(p->state == UNUSED )
+        continue;
       if(p->state != RUNNABLE || p->suspended )
+        { 
+                 //cprintf("Scheduler skipping suspended pid=%d name=%s  state=%d\n", p->pid, p->name , p->state);
                  continue;
+        }        
       
 
     // Check pending signals
@@ -408,8 +420,9 @@ scheduler(void)
         continue; // Process killed
       }
       else if(p->pending_signal == SIGBG){
-        p->state = SLEEPING; 
+        p->state = SUSPENDED; 
         p->pending_signal = 1;
+
         continue; // Process suspended
       }
       else if(p->pending_signal == SIGFG){
@@ -418,12 +431,12 @@ scheduler(void)
       }
       
       // SIGCUSTOM handled differently (user-defined handler in trap.c)
-      // else if(p->pending_signal == SIGCUSTOM){
-      //   p->tf->eip = (uint)p->signal_handler;
-      //   p->tf->esp -= 4;
-      //   *(uint*)p->tf->esp = p->tf->eip;
-      //   p->pending_signal = 0;
-      // }
+      else if(p->pending_signal == SIGCUSTOM){
+        p->tf->eip = (uint)p->signal_handler;
+        p->tf->esp -= 4;
+        *(uint*)p->tf->esp = p->tf->eip;
+        p->pending_signal = 0;
+      }
 
 
 
@@ -608,7 +621,8 @@ procdump(void)
   [RUNNABLE]  "runble",
   [RUNNING]   "run   ",
   [ZOMBIE]    "zombie",
-  [STOPPED]   "stopped"
+  [STOPPED]   "stopped",
+  [SUSPENDED] "suspended"
   };
   int i;
   struct proc *p;
@@ -630,4 +644,19 @@ procdump(void)
     }
     cprintf("\n");
   }
+}
+
+
+
+void wakeup_shell(void) {
+  struct proc *p;
+  acquire(&ptable.lock);
+  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->pid == 2){  // shell is typically pid 2
+      p->state = RUNNABLE;
+      cprintf("Shell (pid=%d) explicitly woken up\n", p->pid);
+      break;
+    }
+  }
+  release(&ptable.lock);
 }

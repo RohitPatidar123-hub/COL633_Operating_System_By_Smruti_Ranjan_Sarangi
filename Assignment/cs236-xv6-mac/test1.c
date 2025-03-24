@@ -20,6 +20,7 @@ int main()
     signal(myHandler); // you need to implement this syscall for registering
     while (1) {
     printf(1, "This is normal code running\n");
+    
     fib (35); // doing CPU intensive work
     }
 }

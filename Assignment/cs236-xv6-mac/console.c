@@ -24,6 +24,10 @@ struct {
   int locking;
 } cons;
 
+
+
+
+
 static void
 printint(int xx, int base, int sign)
 {
@@ -296,4 +300,7 @@ consoleinit(void)
 
   ioapicenable(IRQ_KBD, 0);
 }
+
+// wakes up any processes waiting for input (e.g., shell)
+
 

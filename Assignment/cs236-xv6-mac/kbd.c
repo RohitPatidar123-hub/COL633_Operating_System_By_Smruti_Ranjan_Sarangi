@@ -16,6 +16,11 @@
 #include "x86.h"
 #include "sleeplock.h"
 
+
+
+
+
+
 // extern struct {
 //     struct spinlock lock;
 //     int locking;
@@ -88,6 +93,8 @@ void kbdintr(void) {
         case 0x02: // Ctrl+B
             cprintf("Ctrl -B is detected by xv6\n");
             send_signal_to_all(SIGBG);
+            // consoleintr(C('B'));
+            // wakeup_shell();  // <-- clearly use the wrapper function
             break;
 
         // case 0x1A: // Ctrl+Z
