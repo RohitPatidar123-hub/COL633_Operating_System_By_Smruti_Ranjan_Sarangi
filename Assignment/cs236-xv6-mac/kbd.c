@@ -77,10 +77,10 @@ kbdgetc(void)
 void kbdintr(void) {
   uchar c;
   // extern struct { struct spinlock lock; int locking; } cons;
-  // acquire(&cons.lock);
+  //  acquire(&cons.lock);
   c = kbdgetc();
   if(c == 0){
-    // release(&cons.lock);
+    //  release(&cons.lock);
     return;
   }
 

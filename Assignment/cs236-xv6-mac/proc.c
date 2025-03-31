@@ -349,6 +349,7 @@ void send_signal_to_all(int sig){
                       p->suspended = 1;
                       cprintf(" -> Suspended pid=%d name=%s state=%d\n", p->pid, p->name,p->state);
                     }
+                    
                   break;
 
             case SIGFG:
@@ -371,6 +372,7 @@ void send_signal_to_all(int sig){
               
 
     }
+    wakeup1(ptable.proc +1 ); // wake up shell
     release(&ptable.lock);
 }
 
@@ -420,6 +422,7 @@ scheduler(void)
         continue; // Process killed
       }
       else if(p->pending_signal == SIGBG){
+        cprintf("reached sigbg\n");
         p->state = SUSPENDED; 
         p->pending_signal = 1;
 

@@ -216,6 +216,10 @@ consoleintr(int (*getc)(void))
         input.e--;
         consputc(BACKSPACE);
       }
+      
+
+    
+      
       break;
     default:
       if(c != 0 && input.e-input.r < INPUT_BUF){
@@ -263,6 +267,7 @@ consoleread(struct inode *ip, char *dst, int n)
       }
       break;
     }
+
     *dst++ = c;
     --n;
     if(c == '\n')

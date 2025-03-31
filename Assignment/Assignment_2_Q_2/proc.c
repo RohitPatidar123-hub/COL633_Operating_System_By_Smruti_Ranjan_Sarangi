@@ -282,11 +282,11 @@ int wt = curproc->total_wait_time;
 int rt = curproc->first_run_time - curproc->creation_time;
 int cs = curproc->context_switches;
 
-cprintf("PID: %d\n", curproc->pid);
-cprintf("TAT: %d\n", tat);
-cprintf("WT: %d\n", wt);
-cprintf("RT: %d\n", rt);
-cprintf("#CS: %d\n", cs);
+// cprintf("PID: %d\n", curproc->pid);
+// cprintf("TAT: %d\n", tat);
+// cprintf("WT: %d\n", wt);
+// cprintf("RT: %d\n", rt);
+// cprintf("#CS: %d\n", cs);
 
 
     
