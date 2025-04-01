@@ -28,6 +28,7 @@ OBJS = \
 	vectors.o\
 	vm.o\
 
+
 # Cross-compiling (e.g., on Mac OS X)
 TOOLPREFIX = i386-elf-
 
@@ -184,6 +185,15 @@ UPROGS=\
     _test\
 	_test1\
 	_test2\
+	_test_sched1\
+	_test_sched2\
+	_test_sched3\
+	_test_sched4\
+	_test_sched5\
+	_test_sched6\
+	_test_sched7\
+	_test_sched8\
+	_test_sched9\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)

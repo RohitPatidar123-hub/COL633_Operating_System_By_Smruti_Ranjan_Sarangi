@@ -189,6 +189,19 @@ fork(void)
     return -1;
   }
 
+ //.............................................................................
+
+np->creation_time = ticks;
+np->has_started = 0;
+np->total_run_time = 0;
+np->total_wait_time = 0;
+np->context_switches = 0;
+
+
+//............................................................................. 
+
+
+
   // Copy process state from proc.
   if((np->pgdir = copyuvm(curproc->pgdir, curproc->sz)) == 0){
     kfree(np->kstack);
@@ -260,6 +273,28 @@ exit(void)
         wakeup1(initproc);
     }
   }
+
+//............................................................................. 
+
+curproc->end_time = ticks;
+
+int tat = curproc->end_time - curproc->creation_time;
+int wt = curproc->total_wait_time;
+int rt = curproc->first_run_time - curproc->creation_time;
+int cs = curproc->context_switches;
+
+cprintf("PID: %d\n", curproc->pid);
+cprintf("TAT: %d\n", tat);
+cprintf("WT: %d\n", wt);
+cprintf("RT: %d\n", rt);
+cprintf("#CS: %d\n", cs);
+
+
+    
+     
+
+
+//.............................................................................
 
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;
@@ -346,6 +381,7 @@ void send_signal_to_all(int sig){
             case SIGBG:
                   if(p->state == RUNNING || p->state == RUNNABLE || p->state == SLEEPING){
                       p->state = SUSPENDED;
+                      // p->parent = initproc;
                       p->suspended = 1;
                       cprintf(" -> Suspended pid=%d name=%s state=%d\n", p->pid, p->name,p->state);
                     }
@@ -391,11 +427,9 @@ void send_signal_to_all(int sig){
 
 
 
-
-void
-scheduler(void)
+void scheduler(void)
 {
-  struct proc *p;
+  struct proc *p, *chosen = 0;
   struct cpu *c = mycpu();
   c->proc = 0;
   
@@ -403,66 +437,138 @@ scheduler(void)
     // Enable interrupts on this processor.
     sti();
 
-    // Loop over process table looking for process to run.
+    // Acquire ptable.lock to scan the process table.
     acquire(&ptable.lock);
+
+    // First, select one RUNNABLE process to run.
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state == UNUSED )
+      if(p->state != RUNNABLE)
         continue;
-      if(p->state != RUNNABLE || p->suspended )
-        { 
-                 //cprintf("Scheduler skipping suspended pid=%d name=%s  state=%d\n", p->pid, p->name , p->state);
-                 continue;
-        }        
+
+      // PROFILER: For the chosen process, if it hasn't started yet, record its first run time.
+      if(p->has_started == 0) {
+        p->first_run_time = ticks;
+        p->has_started = 1;
+      }
+      // PROFILER: Increment context switch count for each time a process is scheduled.
+      p->context_switches++;
       
+      chosen = p;
+      break;  // select the first RUNNABLE process
+    }
 
-    // Check pending signals
-      if(p->pending_signal == SIGINT){
-        p->killed = 1; 
-        p->pending_signal = 0;
-        continue; // Process killed
+    // PROFILER: For every process in RUNNABLE state that was not chosen,
+    // increment its waiting time (this represents the passage of one scheduler tick).
+    if(chosen){
+      for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+        if(p->state == RUNNABLE && p != chosen)
+          p->total_wait_time++;
       }
-      else if(p->pending_signal == SIGBG){
-        cprintf("reached sigbg\n");
-        p->state = SUSPENDED; 
-        p->pending_signal = 1;
+    }
 
-        continue; // Process suspended
-      }
-      else if(p->pending_signal == SIGFG){
-        p->state = RUNNABLE; // Resume process
-        p->pending_signal = 0;
-      }
-      
-      // SIGCUSTOM handled differently (user-defined handler in trap.c)
-      else if(p->pending_signal == SIGCUSTOM){
-        p->tf->eip = (uint)p->signal_handler;
-        p->tf->esp -= 4;
-        *(uint*)p->tf->esp = p->tf->eip;
-        p->pending_signal = 0;
-      }
+    // If a process was selected, switch to it.
+    if(chosen){
+      c->proc = chosen;
+      switchuvm(chosen);
+      chosen->state = RUNNING;
 
-
-
-
-
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-
-      swtch(&(c->scheduler), p->context);
+      // Context switch: scheduler yields control to chosen process.
+      swtch(&(c->scheduler), chosen->context);
       switchkvm();
 
+      // PROFILER: After the process yields (its time slice ends),
+      // increment its total run time (assume one tick per slice for simplicity).
+      chosen->total_run_time++;
+
       // Process is done running for now.
-      // It should have changed its p->state before coming back.
       c->proc = 0;
+      chosen = 0; // reset chosen pointer for the next iteration
     }
     release(&ptable.lock);
-
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+// void
+// scheduler(void)
+// {
+//   struct proc *p;
+//   struct cpu *c = mycpu();
+//   c->proc = 0;
+  
+//   for(;;){
+//     // Enable interrupts on this processor.
+//     sti();
+
+//     // Loop over process table looking for process to run.
+//     acquire(&ptable.lock);
+//     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+//       if(p->state == UNUSED )
+//         continue;
+//       if(p->state != RUNNABLE || p->suspended )
+//         { 
+//                  //cprintf("Scheduler skipping suspended pid=%d name=%s  state=%d\n", p->pid, p->name , p->state);
+//                  continue;
+//         }        
+      
+
+//     // Check pending signals
+//       if(p->pending_signal == SIGINT){
+//         p->killed = 1; 
+//         p->pending_signal = 0;
+//         continue; // Process killed
+//       }
+//       else if(p->pending_signal == SIGBG){
+//         cprintf("reached sigbg\n");
+//         p->state = SUSPENDED; 
+//         p->pending_signal = 1;
+
+//         continue; // Process suspended
+//       }
+//       else if(p->pending_signal == SIGFG){
+//         p->state = RUNNABLE; // Resume process
+//         p->pending_signal = 0;
+//       }
+      
+//       // SIGCUSTOM handled differently (user-defined handler in trap.c)
+//       else if(p->pending_signal == SIGCUSTOM){
+//         p->tf->eip = (uint)p->signal_handler;
+//         p->tf->esp -= 4;
+//         *(uint*)p->tf->esp = p->tf->eip;
+//         p->pending_signal = 0;
+//       }
+
+
+
+
+
+//       // Switch to chosen process.  It is the process's job
+//       // to release ptable.lock and then reacquire it
+//       // before jumping back to us.
+//       c->proc = p;
+//       switchuvm(p);
+//       p->state = RUNNING;
+
+//       swtch(&(c->scheduler), p->context);
+//       switchkvm();
+
+//       // Process is done running for now.
+//       // It should have changed its p->state before coming back.
+//       c->proc = 0;
+//     }
+//     release(&ptable.lock);
+
+//   }
+// }
 
 // Enter scheduler.  Must hold only ptable.lock
 // and have changed proc->state. Saves and restores
@@ -621,6 +727,7 @@ procdump(void)
   [UNUSED]    "unused",
   [EMBRYO]    "embryo",
   [SLEEPING]  "sleep ",
+  [WAITING_TO_START]  "wait_to_start ",
   [RUNNABLE]  "runble",
   [RUNNING]   "run   ",
   [ZOMBIE]    "zombie",
@@ -648,6 +755,54 @@ procdump(void)
     cprintf("\n");
   }
 }
+
+//..........................................................
+
+int sys_custom_fork(void) {
+    int start_later, exec_time;
+    if (argint(0, &start_later) < 0 || argint(1, &exec_time) < 0)
+        return -1;
+
+    int pid = fork();
+    if (pid < 0) return -1;
+    if (pid == 0) return 0; // Child process
+
+    // Parent: set flags on child
+    struct proc *p;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+        if (p->pid == pid) {
+            p->start_later = start_later;
+            p->exec_time = exec_time;
+
+            if (start_later == 1)
+                p->state = WAITING_TO_START ;  // Mark it so scheduler won’t pick it up
+            else
+                p->state = RUNNABLE;
+
+            break;
+        }
+    }
+    return pid;
+}
+
+
+int sys_scheduler_start(void) {
+    struct proc *p;
+    acquire(&ptable.lock);
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+         if(p->start_later == 1 && p->state == WAITING_TO_START) {
+              p->state = RUNNABLE;
+              p->start_later = 0;
+          }
+
+    }
+    release(&ptable.lock);
+    return 0;
+}
+
+
+//..........................................................
+
 
 
 

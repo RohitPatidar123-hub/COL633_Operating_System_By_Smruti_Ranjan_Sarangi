@@ -45,7 +45,7 @@ struct context {
   uint eip;
 };
 
-enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE , STOPPED, SUSPENDED};
+enum procstate { UNUSED, EMBRYO, SLEEPING,WAITING_TO_START, RUNNABLE, RUNNING, ZOMBIE , STOPPED, SUSPENDED};
 
 // Per-process state
 struct proc {
@@ -57,7 +57,27 @@ struct proc {
   int in_signal_handler;        // Flag to avoid reentrancy.
   uint backup_eip;              // 🔥 Save original eip here
   int in_handler;        // flag to prevent re-entering the handler
+  //.................................
+
+  // New fields for custom scheduling
+    int start_later;          // 1 if process should not run until scheduler_start()
+    int exec_time;            // Remaining execution time in ticks (-1 means run indefinitely)
+    int start_time;           // Time when the process was actually started
   
+
+  int creation_time;       // Time when process was created
+  int end_time;            // Time when process exited
+  int first_run_time;      // Time when process first got scheduled
+  int total_run_time;      // Total ticks the process actually ran
+  int total_wait_time;     // Accumulate when not running
+  int context_switches;    // Total number of times scheduled
+  int has_started;         // Flag to mark if it has started once
+
+  //................................
+
+
+
+
   pde_t* pgdir;                // Page table
   char *kstack;                // Bottom of kernel stack for this process
   enum procstate state;        // Process state

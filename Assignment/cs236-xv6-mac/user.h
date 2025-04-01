@@ -26,6 +26,9 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int signal(void (*handler)(void));
+int custom_fork(int start_later, int exec_time);
+int scheduler_start(void);
+
 
 // ulib.c
 int stat(const char*, struct stat*);
