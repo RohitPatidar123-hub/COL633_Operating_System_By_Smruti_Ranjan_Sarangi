@@ -72,11 +72,14 @@ struct proc {
   int total_wait_time;     // Accumulate when not running
   int context_switches;    // Total number of times scheduled
   int has_started;         // Flag to mark if it has started once
+   int start_run_tick;          // Tick when the process started running
+   int sum_running;
 
   //................................
+    //part 2.3
+    
 
-
-
+  //.................................
 
   pde_t* pgdir;                // Page table
   char *kstack;                // Bottom of kernel stack for this process

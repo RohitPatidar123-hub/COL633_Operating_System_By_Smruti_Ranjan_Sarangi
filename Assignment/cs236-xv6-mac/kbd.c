@@ -1,8 +1,5 @@
-// #include "types.h"
-// #include "x86.h"
-// #include "defs.h"
+// Project: xv6
 #include "kbd.h"
-// #include "proc.h"
 #include "types.h"
 #include "defs.h"
 #include "param.h"
@@ -21,12 +18,7 @@
 
 
 
-// extern struct {
-//     struct spinlock lock;
-//     int locking;
-// } cons;
 
-// #include "sleeplock.h
 int
 kbdgetc(void)
 {
@@ -76,7 +68,8 @@ kbdgetc(void)
 
 void kbdintr(void) {
   uchar c;
-  // extern struct { struct spinlock lock; int locking; } cons;
+
+ 
   //  acquire(&cons.lock);
   c = kbdgetc();
   if(c == 0){
@@ -93,8 +86,7 @@ void kbdintr(void) {
         case 0x02: // Ctrl+B
             cprintf("Ctrl -B is detected by xv6\n");
             send_signal_to_all(SIGBG);
-            // consoleintr(C('B'));
-            // wakeup_shell();  // <-- clearly use the wrapper function
+     
             break;
 
         // case 0x1A: // Ctrl+Z

@@ -14,14 +14,15 @@ int main() {
                     } else if (pid == 0) {
                         // Child process
                             printf(1, "Child %d (PID: %d) started but should not run yet.\n", i, getpid());
-                            for (volatile int j = 0; j < 100000000; j++); // Simulated work
+                            for (volatile int j = 0; j < 10; j++)
+                                printf(1,"in child...."); // Simulated work
                             exit();
                            }
                     }
             printf(1, "All child processes created with start_later flag set.\n");
-                        sleep(400);
+                      sleep(400);
             printf(1, "Calling sys_scheduler_start() to allow execution.\n");
-            scheduler_start();
+             scheduler_start();
             for (int i = 0; i < NUM_PROCS; i++) {
                          wait();
             }
