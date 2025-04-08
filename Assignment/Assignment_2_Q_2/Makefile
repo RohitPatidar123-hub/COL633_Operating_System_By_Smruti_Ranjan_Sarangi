@@ -28,6 +28,10 @@ OBJS = \
 	vectors.o\
 	vm.o\
 
+INITIAL_PRIORITY = 10
+ALPHA = 2
+BETA  = 3
+
 # Cross-compiling (e.g., on Mac OS X)
 TOOLPREFIX = i386-elf-
 
