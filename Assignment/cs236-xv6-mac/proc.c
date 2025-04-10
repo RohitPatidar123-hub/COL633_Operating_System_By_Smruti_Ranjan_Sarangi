@@ -205,8 +205,10 @@ np->has_started = 0;
 np->total_run_time = 0;
 np->total_wait_time = 0;
 np->context_switches = 0;
-np->sum_running = 0;
+np->total_sleeping_time = 0;
 np->start_run_tick = 0;
+np->exec_time = -1;
+np->backup_eip=0xFFFFFFF;
 
 
 //............................................................................. 
@@ -254,7 +256,7 @@ exit(void)
   struct proc *curproc = myproc();
   struct proc *p;
   int fd;
-
+  // cprintf("exit(): process %d (%s) exiting\n", curproc->pid, curproc->name);
   if(curproc == initproc)
     panic("init exiting");
 
@@ -288,37 +290,23 @@ exit(void)
 curproc->end_time = ticks;
 
 int tat = curproc->end_time - curproc->creation_time;
-int wt = tat - curproc->total_run_time;
+int wt = tat - curproc->total_run_time - curproc->total_sleeping_time;
 int rt = curproc->first_run_time - curproc->creation_time;
 int cs = curproc->context_switches;
-int first_run = curproc->first_run_time;
-int end_time = curproc->end_time;
+// int first_run = curproc->first_run_time;
+// int end_time = curproc->end_time;
 
-cprintf("PID: %d, Name: %s\n", curproc->pid, curproc->name);
 cprintf("total run time : %d\n", curproc->total_run_time);
-cprintf("Creation Time: %d\n", curproc->creation_time);
-cprintf("First Run Time: %d\n", first_run);
-cprintf("End Time: %d\n", end_time);
-cprintf("Exit Time: %d\n", curproc->end_time);
+// cprintf("Creation Time: %d\n", curproc->creation_time);
+// cprintf("First Run Time: %d\n", first_run);
+// cprintf("End Time: %d\n", end_time);
+
+cprintf("PID: %d\n", curproc->pid);
 cprintf("TAT: %d\n", tat);
 cprintf("WT: %d\n", wt);
 cprintf("RT: %d\n", rt);
 cprintf("#CS: %d\n", cs);
-
-
-
-  //   int start_later;          // 1 if process should not run until scheduler_start()
-  //   int exec_time;            // Remaining execution time in ticks (-1 means run indefinitely)
-  //   int start_time;           // Time when the process was actually started
-  
-
-  // int creation_time;       // Time when process was created
-  // int end_time;            // Time when process exited
-  // int first_run_time;      // Time when process first got scheduled
-  // int total_run_time;      // Total ticks the process actually ran
-  // int total_wait_time;     // Accumulate when not running
-  // int context_switches;    // Total number of times scheduled
-  // int has_started;         // Flag to mark if it has started once
+cprintf("Sleeping Time: %d\n", curproc->total_sleeping_time);
     
   if(curproc->state == ZOMBIE) {
     cprintf("exit(): process %d already zombie, panic!\n", curproc->pid);
@@ -378,14 +366,6 @@ wait(void)
   }
 }
 
-
-
-
-
-
-
-
-
 // Enter scheduler.  Must hold only ptable.lock
 // and have changed proc->state. Saves and restores
 // intena because intena is a property of this
@@ -417,6 +397,7 @@ sched(void)
 void
 yield(void)
 {
+ 
   acquire(&ptable.lock);  //DOC: yieldlock
   if(myproc()->state == SUSPENDED){
     sched();
@@ -426,15 +407,6 @@ yield(void)
   }
   release(&ptable.lock);
 }
-// void
-// yield(void)
-// {
-//   acquire(&ptable.lock);  //DOC: yieldlock
-//   myproc()->state = RUNNABLE;
-//   sched();
-//   release(&ptable.lock);
-// }
-
 // A fork child's very first scheduling by scheduler()
 // will swtch here.  "Return" to user space.
 void
@@ -479,12 +451,15 @@ sleep(void *chan, struct spinlock *lk)
     acquire(&ptable.lock);  //DOC: sleeplock1
     release(lk);
   } 
+
+  int sleep_start_tick=ticks;
   // Go to sleep.
   p->chan = chan;
   p->state = SLEEPING;
 
   sched();
-
+   // When the process wakes up, update the total_sleep_time.
+  p->total_sleeping_time += (ticks - sleep_start_tick);
   // Tidy up.
   p->chan = 0;
 
@@ -561,7 +536,7 @@ procdump(void)
   [EMBRYO]    "embryo",
   [SLEEPING]  "sleep ",
   [WAITING_TO_START]  "wait_to_start ",
-  [RUNNABLE]  "runble",
+  [RUNNABLE]  "runnble",
   [RUNNING]   "running   ",
   [ZOMBIE]    "zombie",
   [STOPPED]   "stopped",
@@ -598,20 +573,20 @@ int sys_custom_fork(void) {
 
     int pid = fork();
     if (pid < 0) return -1;
-    if (pid == 0) return 0; // Child process
+    if (pid == 0) return 0; 
    
-    // Parent: set flags on child
+    
     struct proc *p;
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
         if (p->pid == pid) {
             p->start_later = start_later;
             p->exec_time = exec_time;
-
+            // acquire(&ptable.lock);
             if (start_later == 1)
-                p->state = WAITING_TO_START ;  // Mark it so scheduler won’t pick it up
+                p->state = WAITING_TO_START ;  
             else
                 p->state = RUNNABLE;
-
+            // release(&ptable.lock);
             break;
         }
     }
@@ -639,91 +614,22 @@ int sys_scheduler_start(void) {
 
 
 
-void wakeup_shell(void) {
-  struct proc *p;
-  acquire(&ptable.lock);
-  for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->pid == 2){  // shell is typically pid 2
-      p->state = RUNNABLE;
-      cprintf("Shell (pid=%d) explicitly woken up\n", p->pid);
-      break;
-    }
-  }
-  release(&ptable.lock);
-}
-
-
-
-
-// in proc.c
-
-
-// send_signal_to_all(int sig) is responsible for sending a signal (SIGINT, SIGBG, SIGFG, or SIGCUSTOM)
-//  to all user processes (excluding init and shell).
-// void send_signal_to_all(int sig){
-//     struct proc *p;
-
-//     acquire(&ptable.lock);
-//     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-         
-//          if (p->pid == 1 || p->pid == 2) 
-//               {    
-//                  if(p->pid==2 && sig==SIGBG)
-//                      { 
-//                       p->control_flag=1;
-//                       p->state=RUNNABLE ;
-//                      }
-                     
-//                  continue;
-//               }
-//          if(p->state == UNUSED) continue;
-//          cprintf("SIG %d to pid=%d name=%s state=%d\n", sig, p->pid, p->name, p->state);
-//           switch(sig) {
-//             case SIGINT:
-//                 p->killed = 1;   // terminate the process
-//                 if(p->state == SLEEPING)
-//                     p->state = RUNNABLE; // explicitly wake up to terminate
-//                 cprintf(" -> Terminatedc pid=%d name=%s\n", p->pid, p->name);    
-//                 break;
-
-//             case SIGBG:
-//                   if(p->state == RUNNING || p->state == RUNNABLE || p->state == SLEEPING){
-//                       p->state = SUSPENDED;
-//                       p->parent = initproc;
-//                       p->suspended = 1;
-//                       cprintf(" -> Suspended pid=%d name=%s state=%d\n", p->pid, p->name,p->state);
-//                     }
-                    
-//                   break;
-
-//             case SIGFG:
-//                   if(p->state == SUSPENDED)
-//                     { 
-//                      p->suspended = 0;  
-//                     cprintf(" -> Resumed pid=%d name=%s state=%d\n", p->pid, p->name,p->state);  
-//                     p->state = RUNNABLE;  // resume suspended process
-//                     }
-//                   break;
-
-//             case SIGCUSTOM:
-//                  if(p->signal_handler){
-//                      p->pending_signal = SIGCUSTOM;
-//                      if(p->state == SLEEPING)
-//                         p->state = RUNNABLE;
-//                 }
-//                 break;
-//         }
-              
-
+// void wakeup_shell(void) {
+//   struct proc *p;
+//   acquire(&ptable.lock);
+//   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+//     if(p->pid == 2){  // shell is typically pid 2
+//       p->state = RUNNABLE;
+//       cprintf("Shell (pid=%d) explicitly woken up\n", p->pid);
+//       break;
 //     }
-//     wakeup1(ptable.proc +1 ); // wake up shell
-//     release(&ptable.lock);
+//   }
+//   release(&ptable.lock);
 // }
+
 
 void send_signal_to_all(int sig){
     struct proc *p;
-    //int should_resume_shell = 0;
-
     acquire(&ptable.lock);
     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
          if (p->pid == 1 ) continue;
@@ -735,21 +641,20 @@ void send_signal_to_all(int sig){
          if(p->state == UNUSED ){
             continue;
          }
-         cprintf("SIG %d to pid=%d name=%s state=%d\n", sig, p->pid, p->name, p->state);
+
           switch(sig) {
             case SIGINT:
-                p->killed = 1;   // terminate the process
-                if(p->state == SLEEPING)
-                    p->state = RUNNABLE; // explicitly wake up to terminate
-                cprintf(" -> Terminatedc pid=%d name=%s\n", p->pid, p->name);    
+                p->killed = 1;   
+                if(p->state == SLEEPING || p->state == SUSPENDED || p->state == WAITING_TO_START  || p->state == RUNNABLE)
+                    p->state = RUNNABLE; 
+
                 break;
 
             case SIGBG:
-                  if(p->state == RUNNING || p->state == RUNNABLE || p->state == SLEEPING ){
+                  if(p->state == RUNNING || p->state == RUNNABLE || p->state == SLEEPING || p->state == WAITING_TO_START || p->state == STOPPED){
                       p->state = SUSPENDED;
                       p->suspended = 1;
-                      //should_resume_shell = 1;
-                      cprintf(" -> Suspended pid=%d name=%s and the state is=%d\n", p->pid, p->name, p->state);
+
                     }
                     struct proc *itr;
                     for(itr = ptable.proc; itr < &ptable.proc[NPROC]; itr++){
@@ -763,8 +668,8 @@ void send_signal_to_all(int sig){
                   if(p->state == SUSPENDED)
                     { 
                      p->suspended = 0;  
-                     p->state = RUNNABLE;  // resume suspended process
-                     cprintf(" -> Resumed pid=%d name=%s\n", p->pid, p->name);  
+                     p->state = RUNNABLE;  
+  
                     }
                   break;
 
@@ -777,87 +682,175 @@ void send_signal_to_all(int sig){
                 break;
         }       
     }
-    // wakeup1(ptable.proc+1);
-    cprintf("The state of shell is %d", (ptable.proc+1)->state);
+   wakeup1(ptable.proc+1);// wake up shell
+   
     release(&ptable.lock);
 }
 
 
 
-
-
-void
-scheduler(void)
+void scheduler(void)
 {
   struct proc *p, *chosen = 0;
+  struct proc * previous_process = 0;
   struct cpu *c = mycpu();
+  // int best_priority = -1000000000;
+  // int dynamic_priority;
   c->proc = 0;
   
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
+  for(;;)
+  {
+           int best_priority = -1000000000;
+           int dynamic_priority;
+          sti();
+          acquire(&ptable.lock);
+          for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
+          {
+                   
+                   
+                    if(p->state != RUNNABLE)
+                           continue;
+                    if(p->suspended == 1 || p->state == SUSPENDED)
+                           continue;
+                    if(p->state == WAITING_TO_START)
+                           continue;
+                    
+                    if(p->has_started == 0) 
+                          {
+                            p->first_run_time = ticks;
+                            p->has_started = 1;
+                          }
+                   
+                    int tat =ticks - p->creation_time ;
+                    int wt = tat - p->total_run_time-p->total_sleeping_time;
+                      
+                    // cprintf("total sleep time : %d ....%d \n", p->total_sleeping_time,p->pid);
+                    dynamic_priority = INIT_PRIORITY - ALPHA * p->total_run_time + BETA * wt;
+                    if(dynamic_priority > best_priority ||
+                      (dynamic_priority == best_priority && chosen && p->pid < chosen->pid)) {
+                      best_priority = dynamic_priority;
+                      chosen = p;
+                    }
+                  //  int end_wait = ticks ;
+                   
+                  //  p->total_wait_time += (end_wait - start_wait);
+                  //  if(p->pid!=1 || p->pid!=2) 
+                  //       cprintf("total>wait_time :%d",p->total_wait_time);
+                    
+          }
+          
+          // cprintf("best_priority : %d...p->pid\n",best_priority,p->pid);
+          best_priority = -1000000;
 
-    acquire(&ptable.lock);
-    
-    // PROFILER: For every RUNNABLE process (that is not suspended),
-    // increment its total_wait_time.
-    // (This loop ensures all processes waiting get a wait tick.)
-    // for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    //   // Skip processes that are not runnable or that are suspended.
-    //   if(p->state == RUNNABLE && !(p->suspended == 1 || p->state == SUSPENDED))
-    //       p->total_wait_time++;
-    // }
-    
-    // Now select a process to run.
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      // Skip UNUSED processes.
-      if(p->state == UNUSED)
-        continue;
-      // Skip suspended processes.
-      if(p->suspended == 1 || p->state == SUSPENDED)
-        continue;
-      // We are only interested in RUNNABLE processes.
-      if(p->state != RUNNABLE)
-        continue;
-      if(p->state==WAITING_TO_START){
-           continue; // Skip processes that are waiting to start
-      }  
-
-      // PROFILER: If this process hasn't started running before,
-      // record its first run time.
-      if(p->has_started == 0) {
-        p->first_run_time = ticks;
-        p->has_started = 1;
-      }
-      // PROFILER: Increment context switch counter for this process.
-      p->context_switches++;
-      
-      chosen = p;  // Select the first RUNNABLE process.
-      break;
-    }
-    
-    if(chosen){
-      chosen->start_run_tick = ticks;
-      c->proc = chosen;
-      switchuvm(chosen);
-      chosen->state = RUNNING;
-      
-      // Context switch: scheduler yields control to the chosen process.
-      swtch(&(c->scheduler), chosen->context);
-      switchkvm();
-
-      // PROFILER: After the process yields (i.e. its time slice ends),
-      // increment its total run time (assume one tick per yield for simplicity).
-     chosen->total_run_time += (ticks - chosen->start_run_tick);
-      
-      // Reset current CPU's proc pointer.
-      c->proc = 0;
-      chosen = 0;
-    }
-    
-    release(&ptable.lock);
+          if(chosen)
+          {
+                  chosen->start_run_tick = ticks;
+                  if(previous_process != chosen || previous_process==0)
+                  {
+                          chosen->context_switches++;
+                  }
+                  
+                  c->proc = chosen;
+                  switchuvm(chosen);
+                  chosen->state = RUNNING;
+                  swtch(&(c->scheduler), chosen->context);
+                  switchkvm();
+                  chosen->total_run_time += (ticks - chosen->start_run_tick);
+                  if (chosen->exec_time > 0 && chosen->total_run_time >= chosen->exec_time)
+                  {
+                        chosen->killed = 1;
+                    }
+                  c->proc = 0;
+                  
+                  previous_process = chosen ; 
+                  chosen = 0 ;
+          }
+             release(&ptable.lock);
+  }  
+          // release(&ptable.lock);
   }
-}
+
+
+
+
+
+
+// void
+// scheduler(void)
+// {
+//   struct proc *p, *chosen = 0;
+//   struct cpu *c = mycpu();
+//   c->proc = 0;
+  
+//   for(;;){
+//     // Enable interrupts on this processor.
+//     sti();
+
+//     acquire(&ptable.lock);
+    
+//     // PROFILER: For every RUNNABLE process (that is not suspended),
+//     // increment its total_wait_time.
+//     // (This loop ensures all processes waiting get a wait tick.)
+//     // for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+//     //   // Skip processes that are not runnable or that are suspended.
+//     //   if(p->state == RUNNABLE && !(p->suspended == 1 || p->state == SUSPENDED))
+//     //       p->total_wait_time++;
+//     // }
+    
+//     // Now select a process to run.
+//     for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+//       // Skip UNUSED processes.
+//       if(p->state == UNUSED)
+//         continue;
+//       // Skip suspended processes.
+//       if(p->suspended == 1 || p->state == SUSPENDED)
+//         continue;
+//       // We are only interested in RUNNABLE processes.
+//       if(p->state != RUNNABLE)
+//         continue;
+//       if(p->state==WAITING_TO_START){
+//            continue; // Skip processes that are waiting to start
+//       }  
+
+//       // PROFILER: If this process hasn't started running before,
+//       // record its first run time.
+//       if(p->has_started == 0) {
+//         p->first_run_time = ticks;
+//         p->has_started = 1;
+//       }
+//       // PROFILER: Increment context switch counter for this process.
+//       p->context_switches++;
+      
+//       chosen = p;  // Select the first RUNNABLE process.
+//       break;
+//     }
+    
+//     if(chosen){
+//       chosen->start_run_tick = ticks;
+//       c->proc = chosen;
+//       switchuvm(chosen);
+//       chosen->state = RUNNING;
+      
+//       // Context switch: scheduler yields control to the chosen process.
+//       swtch(&(c->scheduler), chosen->context);
+//       switchkvm();
+
+//       // PROFILER: After the process yields (i.e. its time slice ends),
+//       // increment its total run time (assume one tick per yield for simplicity).
+//      chosen->total_run_time += (ticks - chosen->start_run_tick);
+      
+//       // Reset current CPU's proc pointer.
+//       c->proc = 0;
+//       chosen = 0;
+//     }
+    
+//     release(&ptable.lock);
+//   }
+// }
+
+
+
+
 
 
 
@@ -1074,7 +1067,7 @@ scheduler(void)
 //           release(&ptable.lock);
 
 //   }
-//}
+// }
 
 
 // void scheduler(void)
@@ -1320,3 +1313,84 @@ scheduler(void)
 
 //   }
 // }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

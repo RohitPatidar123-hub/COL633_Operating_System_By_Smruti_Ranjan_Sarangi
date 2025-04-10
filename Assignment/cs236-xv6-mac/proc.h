@@ -1,10 +1,4 @@
 // This file contains the structure of the process and the cpu.
-// #define SIGINT    1
-// #define SIGBG     2
-// #define SIGSTP    3
-// #define SIGFG     4
-// #define SIGCUSTOM 5
-
 #define SIGINT     1  // Ctrl+C
 #define SIGBG      2  // Ctrl+B
 #define SIGFG      3  // Ctrl+F
@@ -43,7 +37,7 @@ struct context {
   uint ebx;
   uint ebp;
   uint eip;
-};
+}; 
 
 enum procstate { UNUSED, EMBRYO, SLEEPING,WAITING_TO_START, RUNNABLE, RUNNING, ZOMBIE , STOPPED, SUSPENDED};
 
@@ -57,8 +51,9 @@ struct proc {
   int in_signal_handler;        // Flag to avoid reentrancy.
   uint backup_eip;              // 🔥 Save original eip here
   int in_handler;        // flag to prevent re-entering the handler
+  
   //.................................
-
+  
   // New fields for custom scheduling
     int start_later;          // 1 if process should not run until scheduler_start()
     int exec_time;            // Remaining execution time in ticks (-1 means run indefinitely)
@@ -73,7 +68,7 @@ struct proc {
   int context_switches;    // Total number of times scheduled
   int has_started;         // Flag to mark if it has started once
    int start_run_tick;          // Tick when the process started running
-   int sum_running;
+  int total_sleeping_time; // Total time spent sleeping
 
   //................................
     //part 2.3
@@ -95,8 +90,6 @@ struct proc {
   char name[16];               // Process name (debugging)
 };
 
-// Process memory is laid out contiguously, low addresses first:
-//   text
-//   original data and bss
-//   fixed-size stack
-//   expandable heap
+
+
+

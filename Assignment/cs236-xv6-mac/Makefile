@@ -29,6 +29,10 @@ OBJS = \
 	vm.o\
 
 
+# INITIAL_PRIORITY = 10
+# ALPHA = 2
+# BETA = 3
+CFLAGS = -DINIT_PRIORITY=50 -DALPHA=1 -DBETA=2
 
 
 # Cross-compiling (e.g., on Mac OS X)
@@ -79,7 +83,7 @@ AS = $(TOOLPREFIX)gas
 LD = $(TOOLPREFIX)ld
 OBJCOPY = $(TOOLPREFIX)objcopy
 OBJDUMP = $(TOOLPREFIX)objdump
-CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer
+CFLAGS += -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
 ASFLAGS = -m32 -gdwarf-2 -Wa,-divide
 # FreeBSD ld wants ``elf_i386_fbsd''
@@ -196,6 +200,7 @@ UPROGS=\
 	_test_sched7\
 	_test_sched8\
 	_test_sched9\
+	
 	
 
 fs.img: mkfs README $(UPROGS)
