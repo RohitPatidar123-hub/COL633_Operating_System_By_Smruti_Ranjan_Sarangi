@@ -51,7 +51,7 @@ morecore(uint nu)
 
   if(nu < 4096)
     nu = 4096;
-  p = sbrk(nu * sizeof(Header));
+  p = sbrk(nu * sizeof(Header));   // sbrk(n) asks the kernel for n more bytes.
   if(p == (char*)-1)
     return 0;
   hp = (Header*)p;
@@ -59,6 +59,7 @@ morecore(uint nu)
   free((void*)(hp + 1));
   return freep;
 }
+
 
 void*
 malloc(uint nbytes)

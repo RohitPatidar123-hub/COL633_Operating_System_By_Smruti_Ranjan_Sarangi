@@ -103,7 +103,6 @@ int             pipewrite(struct pipe*, char*, int);
 
 //PAGEBREAK: 16
 // proc.c
-void            send_signal_to_all(int sig);
 int             cpuid(void);
 void            exit(void);
 int             fork(void);
@@ -121,7 +120,11 @@ void            userinit(void);
 int             wait(void);
 void            wakeup(void*);
 void            yield(void);
-void            wakeup_shell(void);
+void            procdump_pages(void);
+void            memory_printer_handler(void);
+
+
+
 // swtch.S
 void            swtch(struct context**, struct context*);
 
@@ -186,7 +189,11 @@ void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+int             count_pages_in_RAM(struct proc *p);
+pde_t           *walkpgdir(pde_t *pgdir, const void *va, int alloc);
+void            init_swap(void);
+void            cleanup_swap_slots(int pid);
 
-
+void handle_page_fault(uint fault_va);
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

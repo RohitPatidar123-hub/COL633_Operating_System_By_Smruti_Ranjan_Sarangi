@@ -1,5 +1,5 @@
 // PC keyboard interface constants
-#include "types.h"
+
 #define KBSTATP         0x64    // kbd controller status port(I)
 #define KBS_DIB         0x01    // kbd data in buffer
 #define KBDATAP         0x60    // kbd data port(I)

@@ -28,13 +28,6 @@ OBJS = \
 	vectors.o\
 	vm.o\
 
-
-# INITIAL_PRIORITY = 10
-# ALPHA = 2
-# BETA = 3
-CFLAGS = -DINIT_PRIORITY=50 -DALPHA=1 -DBETA=2
-
-
 # Cross-compiling (e.g., on Mac OS X)
 TOOLPREFIX = i386-elf-
 
@@ -83,7 +76,7 @@ AS = $(TOOLPREFIX)gas
 LD = $(TOOLPREFIX)ld
 OBJCOPY = $(TOOLPREFIX)objcopy
 OBJDUMP = $(TOOLPREFIX)objdump
-CFLAGS += -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer
+CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
 ASFLAGS = -m32 -gdwarf-2 -Wa,-divide
 # FreeBSD ld wants ``elf_i386_fbsd''
@@ -188,20 +181,11 @@ UPROGS=\
 	_usertests\
 	_wc\
 	_zombie\
-    _test\
 	_test1\
 	_test2\
-	_test_sched1\
-	_test_sched2\
-	_test_sched3\
-	_test_sched4\
-	_test_sched5\
-	_test_sched6\
-	_test_sched7\
-	_test_sched8\
-	_test_sched9\
-	
-	
+	_test3\
+	_test4\
+	_memtest\
 
 fs.img: mkfs README $(UPROGS)
 	./mkfs fs.img README $(UPROGS)
@@ -238,7 +222,7 @@ QEMUGDB = $(shell if $(QEMU) -help | grep -q '^-gdb'; \
 	then echo "-gdb tcp::$(GDBPORT)"; \
 	else echo "-s -p $(GDBPORT)"; fi)
 ifndef CPUS
-CPUS := 1
+CPUS := 2
 endif
 QEMUOPTS = -drive file=fs.img,index=1,media=disk,format=raw -drive file=xv6.img,index=0,media=disk,format=raw -smp $(CPUS) -m 512 $(QEMUEXTRA)
 

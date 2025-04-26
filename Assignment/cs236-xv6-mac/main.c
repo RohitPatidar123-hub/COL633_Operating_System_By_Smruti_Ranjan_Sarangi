@@ -14,6 +14,19 @@ extern char end[]; // first address after kernel loaded from ELF file
 // Bootstrap processor starts running C code here.
 // Allocate a real stack and switch to it, first
 // doing some setup required for memory allocator to work.
+//....................
+
+
+// void init_swap_slots(void) {
+//     for(int i = 0; i < 800; i++) {
+//         swap_slots[i].is_free = 1;
+//         swap_slots[i].perm = 0;
+//     }
+// }
+
+
+
+//....................
 int
 main(void)
 {
@@ -24,6 +37,7 @@ main(void)
   seginit();       // segment descriptors
   picinit();       // disable pic
   ioapicinit();    // another interrupt controller
+  init_swap();     // init your swap_table BEFORE any user memory allocs
   consoleinit();   // console hardware
   uartinit();      // serial port
   pinit();         // process table

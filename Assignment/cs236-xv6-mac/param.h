@@ -10,5 +10,15 @@
 #define MAXOPBLOCKS  10  // max # of blocks any FS op writes
 #define LOGSIZE      (MAXOPBLOCKS*3)  // max data blocks in on-disk log
 #define NBUF         (MAXOPBLOCKS*3)  // size of disk block cache
-#define FSSIZE       1000  // size of file system in blocks
+// #define FSSIZE       1000  // size of file system in blocks
+
+
+//.................
+
+#define NSPAGESLOTS    800                            // how many pages we can swap
+#define PAGES_PER_SLOT 8                              // 4096B page / 512B block or in one slot total 8 disk block 
+#define SWAP_BLOCKS    (NSPAGESLOTS * PAGES_PER_SLOT) //no. of disk block(6400 disk block) in swap area
+#define FSSIZE    (1000 + SWAP_BLOCKS)                // now the no. of disk block is 1000 + 6400
+
+//.................
 

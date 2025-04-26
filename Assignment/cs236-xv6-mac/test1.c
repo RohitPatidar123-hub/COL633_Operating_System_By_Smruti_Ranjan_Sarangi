@@ -1,27 +1,42 @@
 #include "types.h"
-#include "stat.h"
 #include "user.h"
-int fib(int n) {
-            if (n <= 0) return 0;
-            if (n == 1) return 1;
-            if (n == 2) return 1;
-            return fib(n - 1) + fib(n - 2);
-}
-void sv()
-  {
-        printf(1, "I am Shivam\n");
+#include "fcntl.h"
+// You can write a small user program that allocates memory to see if the page count changes.
+int
+main(int argc, char *argv[])
+{
+  // Allocate an array of 4096 * 10 bytes (i.e. 10 pages)
+  char *mem = malloc(4096 * 10);
+  if(mem == 0){
+    printf(2, "Memory allocation failed\n");
+    exit();
   }
-void myHandler (){
-        printf(1, "I am inside the handler\n");
-        sv();
+  sleep(1000);
+  // Touch each page to ensure it is allocated.
+  for (int i = 0; i < 10; i++) {
+    mem[i * 4096] = i;
+  }
+  
+  printf(1, "Allocated 10 pages of memory\n");
+
+  // Wait for user input so you can test memory printer:
+  printf(1, "Press Ctrl+I in another terminal window, then hit Enter here to exit.\n");
+  char buf[10];
+  gets(buf, sizeof(buf));
+  char *mem1 = malloc(4096 * 10000);
+  if(mem1 == 0){
+    printf(2, "Memory allocation failed\n");
+    exit();
+  }
+
+  for (int i = 0; i < 10000; i++) {
+    mem1[i * 4096] = i;
+  }
+  free(mem);
+  free(mem1);
+  printf(1, "Press Ctrl+I in another terminal window, then hit Enter here to exit.\n");
+  gets(buf, sizeof(buf));
+  exit();
 }
-int main()
- {
-    signal(myHandler); // you need to implement this syscall for registering
-    while (1) {
-    printf(1, "This is normal code running\n");
-    
-    fib (35); // doing CPU intensive work
-    }
-}
+
 

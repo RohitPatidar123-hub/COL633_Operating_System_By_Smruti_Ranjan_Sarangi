@@ -10,19 +10,43 @@
 #include "fs.h"
 #include "stat.h"
 #include "param.h"
-
+#define min(a,b) ((a) < (b) ? (a) : (b))
 #ifndef static_assert
 #define static_assert(a, b) do { switch (0) case 0: case (a): ; } while (0)
 #endif
 
 #define NINODES 200
 
+
+//...............................
+
+// ——— swap area definitions ———
+// #define NSPAGESLOTS   800
+// #define PAGES_PER_SLOT 8
+// #define SWAP_BLOCKS   (NSPAGESLOTS * PAGES_PER_SLOT)
+// #define FSSIZE       (1000 + SWAP_BLOCKS) // total size of the file system
+// struct swap_slot {
+//     int perm;    // permissions of the swapped page
+//     int is_free; // availability (1 if free, 0 if occupied)
+// } swap_slots[800];
+
+// #define SWAPSIZE (800 * 8) // 800 pages * 8 blocks per page
+// // mkfs.c modification (simplified example)
+// uint nswap = SWAPSIZE;
+// uint swapstart = 2; // After sb block (block 1), swap starts at block 2
+// uint logstart = swapstart + nswap; // log starts immediately after swap blocks
+
+
+
+
+
+//...............................
 // Disk layout:
 // [ boot block | sb block | log | inode blocks | free bit map | data blocks ]
 
-int nbitmap = FSSIZE/(BSIZE*8) + 1;
-int ninodeblocks = NINODES / IPB + 1;
-int nlog = LOGSIZE;
+int nbitmap = FSSIZE/(BSIZE*8) + 1; //no of bit map block needed to track  all FSSIZE blocks
+int ninodeblocks = NINODES / IPB + 1; // no of inode block per block.  Each block (BSIZE bytes) holds IPB = BSIZE/sizeof(struct dinode) inodes. Divide the total inodes by that, round up. That many blocks are reserved to store all the dinode structs.
+int nlog = LOGSIZE; // Number of blocks reserved for the file‐system write‐ahead log. no of log blocks.  The log is a circular buffer of size LOGSIZE blocks.  It is used to store the most recent transactions (writes) to the file system.  The log is used to recover the file system in case of a crash or power failure.  The log is written to disk in a circular fashion, so that when it reaches the end, it wraps around to the beginning.
 int nmeta;    // Number of meta blocks (boot, sb, nlog, inode, bitmap)
 int nblocks;  // Number of data blocks
 
@@ -91,35 +115,43 @@ main(int argc, char *argv[])
   }
 
   // 1 fs block = 1 disk sector
-  nmeta = 2 + nlog + ninodeblocks + nbitmap;
+  // nmeta = 2 + nlog + ninodeblocks + nbitmap;
+  nmeta = 2 +  SWAP_BLOCKS  /* our swap area */ + nlog + ninodeblocks + nbitmap;
+
   nblocks = FSSIZE - nmeta;
 
-  sb.size = xint(FSSIZE);
+  sb.size = xint(FSSIZE);// this xint convert to little endian
   sb.nblocks = xint(nblocks);
   sb.ninodes = xint(NINODES);
   sb.nlog = xint(nlog);
-  sb.logstart = xint(2);
-  sb.inodestart = xint(2+nlog);
-  sb.bmapstart = xint(2+nlog+ninodeblocks);
+  // sb.logstart = xint(2);
+  // sb.inodestart = xint(2+nlog);
+  // sb.bmapstart = xint(2+nlog+ninodeblocks);
+
+   // shift all starts down by SWAP_BLOCKS
+  sb.logstart    = xint(2 + SWAP_BLOCKS);
+  sb.inodestart  = xint(2 + SWAP_BLOCKS + nlog);
+  sb.bmapstart   = xint(2 + SWAP_BLOCKS + nlog + ninodeblocks);
+
 
   printf("nmeta %d (boot, super, log blocks %u inode blocks %u, bitmap blocks %u) blocks %d total %d\n",
          nmeta, nlog, ninodeblocks, nbitmap, nblocks, FSSIZE);
 
   freeblock = nmeta;     // the first free block that we can allocate
 
-  for(i = 0; i < FSSIZE; i++)
+  for(i = 0; i < FSSIZE; i++) // This loop “formats” the disk by zeroing every block
     wsect(i, zeroes);
 
-  memset(buf, 0, sizeof(buf));
-  memmove(buf, &sb, sizeof(sb));
-  wsect(1, buf);
+  memset(buf, 0, sizeof(buf)); // after this call, every byte in buf is set to 0x00
+  memmove(buf, &sb, sizeof(sb)); // writes your superblock struct into the beginning of that cleared block.
+  wsect(1, buf);   // writes the result to disk, giving xv6 a valid superblock on which to mount the file system.
 
-  rootino = ialloc(T_DIR);
-  assert(rootino == ROOTINO);
+  rootino = ialloc(T_DIR); // Allocate an inode for the root directory.  The root directory is a special directory that contains all other files and directories in the file system.  It is always assigned inode number 1.
+  assert(rootino == ROOTINO); // The root inode number is always 1.  This is a special case in the file system.
 
-  bzero(&de, sizeof(de));
-  de.inum = xshort(rootino);
-  strcpy(de.name, ".");
+  bzero(&de, sizeof(de));       // 	Zero out the dirent for clean initialization
+  de.inum = xshort(rootino);    // 	Point this entry to the root inode (with correct endian format)
+  strcpy(de.name, ".");         // 	Fill in the name of the entry with a dot (.) to indicate the current directory
   iappend(rootino, &de, sizeof(de));
 
   bzero(&de, sizeof(de));
@@ -226,29 +258,73 @@ ialloc(ushort type)
   uint inum = freeinode++;
   struct dinode din;
 
-  bzero(&din, sizeof(din));
-  din.type = xshort(type);
-  din.nlink = xshort(1);
-  din.size = xint(0);
-  winode(inum, &din);
-  return inum;
+  bzero(&din, sizeof(din));  // Zero out the in-memory inode structure ..Clears all fields (type, device numbers, link count, size, block pointers).
+  din.type = xshort(type); // Initialize key fields..... Set the type of the inode (T_DIR or T_FILE).
+  din.nlink = xshort(1);  // Set the link count to 1 (indicating one reference to this inode).
+  din.size = xint(0);     // Set the size of the file to 0.
+  winode(inum, &din);     // Write the inode to the disk.
+  return inum;       
 }
+
+// void
+// balloc(int used)
+// {
+//   uchar buf[BSIZE];
+//   int i;
+
+//   printf("balloc: first %d blocks have been allocated\n", used);
+//   assert(used < BSIZE*8);
+//   bzero(buf, BSIZE);
+//   for(i = 0; i < used; i++){
+//     buf[i/8] = buf[i/8] | (0x1 << (i%8));
+//   }
+//   printf("balloc: write bitmap block at sector %d\n", sb.bmapstart);
+//   wsect(sb.bmapstart, buf);
+// }
+
+//..........................................................................................................
 
 void
 balloc(int used)
-{
-  uchar buf[BSIZE];
-  int i;
-
+ {
+   uchar buf[BSIZE];
+   int i;
+   int bidx, start, end;
+ 
+// -  printf("balloc: first %d blocks have been allocated\n", used);
+// -  assert(used < BSIZE*8);
+// -  bzero(buf, BSIZE);
+// -  for(i = 0; i < used; i++){
+// -    buf[i/8] = buf[i/8] | (0x1 << (i%8));
+// -  }
+// -  printf("balloc: write bitmap block at sector %d\n", sb.bmapstart);
+// -  wsect(sb.bmapstart, buf);
   printf("balloc: first %d blocks have been allocated\n", used);
-  assert(used < BSIZE*8);
-  bzero(buf, BSIZE);
-  for(i = 0; i < used; i++){
-    buf[i/8] = buf[i/8] | (0x1 << (i%8));
+
+  // loop over each bitmap block
+  for(bidx = 0; bidx < nbitmap; bidx++){
+    bzero(buf, BSIZE);
+    // compute the block‐range this bitmap covers
+    start = bidx * BSIZE * 8;
+    end   = min(used, (bidx+1) * BSIZE * 8);
+    // set bits for [start..end)
+    for(i = start; i < end; i++){
+      int off = i - start;
+      buf[off/8] |= 1 << (off%8);
+    }
+    printf("balloc: write bitmap block at sector %d\n", sb.bmapstart + bidx);
+    wsect(sb.bmapstart + bidx, buf);
   }
-  printf("balloc: write bitmap block at sector %d\n", sb.bmapstart);
-  wsect(sb.bmapstart, buf);
-}
+ }
+
+
+
+
+
+
+
+
+//..........................................................................................................
 
 #define min(a, b) ((a) < (b) ? (a) : (b))
 
