@@ -95,8 +95,21 @@ struct segdesc {
 #define PTE_W           0x002   // Writeable
 #define PTE_U           0x004   // User
 #define PTE_PS          0x080   // Page Size
+
 //............................................
+
+#define PTE_PCD         0x010   // Page Cache Disable
+#define PTE_PWT         0x008   // Page Write Through
+#define PTE_PSE         0x080   // Page Size Extension
+#define PTE_G           0x100   // Global
+#define PTE_WIRED       0x200   // Wired
+#define PTE_MBZ         0x400   // Must be zero
+#define PTE_PG          0x800   // Page Global
+
 #define PTE_A           0x020   // Accessed
+#define PTE_D           0x040   // Dirty (set by hardware on write)
+
+
 //............................................
 // Address in page table or page directory entry
 #define PTE_ADDR(pte)   ((uint)(pte) & ~0xFFF)

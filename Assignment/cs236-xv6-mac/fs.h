@@ -13,6 +13,9 @@
 // super block describes the disk layout:
 struct superblock {
   uint size;         // Size of file system image (blocks)
+  //.............................................................
+  uint nswap;       // Number of swap blocks
+  //.............................................................
   uint nblocks;      // Number of data blocks
   uint ninodes;      // Number of inodes.
   uint nlog;         // Number of log blocks

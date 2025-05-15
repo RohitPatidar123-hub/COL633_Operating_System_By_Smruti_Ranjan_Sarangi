@@ -14,11 +14,14 @@
 
 
 //.................
+// #define FSSIZE         10000                           // size of file system in blocks
+#define NSPAGESLOTS    800                             // how many pages we can swap
+#define SWAP_SLOTS     800                             // number of swap slots reserved for paging
+#define SWAPSTART      2                               // first block of swap area (after superblock)&#8203;:contentReference[oaicite:2]{index=2}
+#define PAGES_PER_SLOT 8                               // 4096B page / 512B block or in one slot total 8 disk block 
+#define SWAP_BLOCKS    (NSPAGESLOTS * PAGES_PER_SLOT)  //no. of disk block(6400 disk block) in swap area
 
-#define NSPAGESLOTS    800                            // how many pages we can swap
-#define PAGES_PER_SLOT 8                              // 4096B page / 512B block or in one slot total 8 disk block 
-#define SWAP_BLOCKS    (NSPAGESLOTS * PAGES_PER_SLOT) //no. of disk block(6400 disk block) in swap area
-#define FSSIZE    (1000 + SWAP_BLOCKS)                // now the no. of disk block is 1000 + 6400
+#define FSSIZE    (10000 + SWAP_BLOCKS)                // now the no. of disk block is 10000 + 6400
 
 //.................
 

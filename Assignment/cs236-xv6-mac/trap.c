@@ -72,8 +72,8 @@ trap(struct trapframe *tf)
     break;
 
   case T_PGFLT:
-     handle_page_fault(rcr2());
-     break;  
+        handle_page_fault(rcr2());
+        return ;  
   case T_IRQ0 + IRQ_COM1:
     uartintr();
     lapiceoi();

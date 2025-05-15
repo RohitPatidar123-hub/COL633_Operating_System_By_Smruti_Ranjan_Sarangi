@@ -25,10 +25,10 @@
 // #define PAGES_PER_SLOT 8
 // #define SWAP_BLOCKS   (NSPAGESLOTS * PAGES_PER_SLOT)
 // #define FSSIZE       (1000 + SWAP_BLOCKS) // total size of the file system
-// struct swap_slot {
-//     int perm;    // permissions of the swapped page
-//     int is_free; // availability (1 if free, 0 if occupied)
-// } swap_slots[800];
+struct swap_slot {
+    int perm;    // permissions of the swapped page
+    int is_free; // availability (1 if free, 0 if occupied)
+} swap_slots[800];
 
 // #define SWAPSIZE (800 * 8) // 800 pages * 8 blocks per page
 // // mkfs.c modification (simplified example)
@@ -119,8 +119,9 @@ main(int argc, char *argv[])
   nmeta = 2 +  SWAP_BLOCKS  /* our swap area */ + nlog + ninodeblocks + nbitmap;
 
   nblocks = FSSIZE - nmeta;
-
-  sb.size = xint(FSSIZE);// this xint convert to little endian
+  int nswap = SWAP_BLOCKS;                         // number of swap blocks 
+  sb.size = xint(FSSIZE);   
+  sb.nswap = nswap ;                              // (optional) store swap size in superblock
   sb.nblocks = xint(nblocks);
   sb.ninodes = xint(NINODES);
   sb.nlog = xint(nlog);
@@ -130,8 +131,9 @@ main(int argc, char *argv[])
 
    // shift all starts down by SWAP_BLOCKS
   sb.logstart    = xint(2 + SWAP_BLOCKS);
-  sb.inodestart  = xint(2 + SWAP_BLOCKS + nlog);
-  sb.bmapstart   = xint(2 + SWAP_BLOCKS + nlog + ninodeblocks);
+  sb.inodestart  = xint(sb.logstart + nlog);
+  sb.bmapstart   = xint(sb.inodestart + ninodeblocks);
+  sb.nblocks  = FSSIZE - sb.bmapstart;               // total number of data blocks
 
 
   printf("nmeta %d (boot, super, log blocks %u inode blocks %u, bitmap blocks %u) blocks %d total %d\n",

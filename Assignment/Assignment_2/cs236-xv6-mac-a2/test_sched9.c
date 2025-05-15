@@ -2,13 +2,13 @@
 #include "stat.h"
 #include "user.h"
 
-#define NUM_CHILDREN 8
+#define NUM_CHILDREN 4
 
 int main(void) {
     int i, pid;
     
     for (i = 0; i < NUM_CHILDREN; i++){
-        pid = custom_fork(1, 50);  // All delayed start, exec_time = 50
+        pid = custom_fork(0, 10);  // All delayed start, exec_time = 50
         if(pid < 0) {
             printf(1, "Failed to fork child %d\n", i);
             exit();

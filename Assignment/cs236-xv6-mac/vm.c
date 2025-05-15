@@ -8,47 +8,77 @@
 #include "elf.h"
 #include "fs.h"
 #include "spinlock.h"
-#include "sleeplock.h"  // defines struct sleeplock used by buf.h
+#include "sleeplock.h"  // for struct sleeplock
 #include "buf.h"
 
 
-
-//.........................................................................................................................................................
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
 } ptable;
-static int Npg   = 2;     // pages to swap out each time
-// Adaptive swap policy parameters (tuned via Makefile -DALPHA / -DBETA):
+
+static int  alloc_swap_slot(int pid, uint va, int perm);
+static void write_swap_page(int slot, char *pa);
+static void read_swap_page(int slot, char *pa);
+
+// Adaptive swap policy parameters
 #ifndef ALPHA
 #define ALPHA 25
 #endif
 #ifndef BETA
 #define BETA 10
 #endif
-
-static int Th    = 100;   // threshold: if free pages < Th, trigger swap
+static int Th    = 100;   // threshold: free pages < Th triggers swap
+static int Npg   = 2;     // pages to swap out each time
 static int Limit = 100;   // maximum Npg
+
+// Forward declarations
 static int  alloc_swap_slot(int pid, uint va, int perm);
 static void write_swap_page(int slot, char *pa);
+static void read_swap_page(int slot, char *pa);
+static struct proc* select_victim_proc(void);
+static uint        select_victim_va(struct proc *victim);
+static void        swap_out_pages(int n);
+void               handle_page_fault(uint fault_va);
 
+// Swap-slot bookkeeping
+struct swap_slot {
+  int is_free;    // 1 if free
+  int perm;       // saved PTE permissions
+  uint va;        // user VA
+  int pid;        // owner pid
+};
+static struct swap_slot swap_table[NSPAGESLOTS];
+static struct spinlock swaplock;
 
-//.....................................
+// Initialize swap slots; call at boot
+void
+init_swap(void)
+{
+  initlock(&swaplock, "swap");
+  for(int i = 0; i < NSPAGESLOTS; i++){
+    swap_table[i].is_free = 1;
+    swap_table[i].perm    = 0;
+    swap_table[i].va      = 0;
+    swap_table[i].pid     = 0;
+  }
+}
 
+// Free slots for pid; call on exit
+void
+cleanup_swap_slots(int pid)
+{
+  acquire(&swaplock);
+  for(int i = 0; i < NSPAGESLOTS; i++){
+    if(!swap_table[i].is_free && swap_table[i].pid == pid)
+      swap_table[i].is_free = 1;
+  }
+  release(&swaplock);
+}
 
-// ——— Swap‐slot bookkeeping ———
- struct swap_slot {
-   int is_free;    // 1 if free
-   int perm;       // saved PTE permissions
-   uint va;        // user VA
-   int pid;        // owner pid
- };
- static struct swap_slot swap_table[NSPAGESLOTS];
- static struct spinlock swaplock;
- static void swap_out_pages(int n);
-
-
-static int alloc_swap_slot(int pid, uint va, int perm)
+// Allocate first free swap slot
+static int
+alloc_swap_slot(int pid, uint va, int perm)
 {
   acquire(&swaplock);
   for(int i = 0; i < NSPAGESLOTS; i++){
@@ -65,542 +95,21 @@ static int alloc_swap_slot(int pid, uint va, int perm)
   return -1;
 }
 
-
-// initialize the swap_table
-void
-init_swap(void)
-{
-  initlock(&swaplock, "swap");
-  for(int i = 0; i < NSPAGESLOTS; i++){
-    swap_table[i].is_free = 1;
-    swap_table[i].perm    = 0;
-    swap_table[i].va      = 0;
-    swap_table[i].pid     = 0;
-  }
-}
-
-
-
-// free any slots held by `pid` (call from exit())
-void
-cleanup_swap_slots(int pid)
-{
-  acquire(&swaplock);
-  for(int i = 0; i < NSPAGESLOTS; i++){
-    if(!swap_table[i].is_free && swap_table[i].pid == pid)
-      swap_table[i].is_free = 1;
-  }
-  release(&swaplock);
-}
-
-// // write one 4 KiB page (8 blocks) from 'pa' into swap slot #slot
+// Write a 4KiB page (8 blocks) from pa into swap slot
 static void
 write_swap_page(int slot, char *pa)
 {
   int startb = (FSSIZE - SWAP_BLOCKS) + slot * PAGES_PER_SLOT;
   for(int i = 0; i < PAGES_PER_SLOT; i++){
     int blkno = startb + i;
-    // struct buf *b = bread(logdev, blkno);
     struct buf *b = bread(ROOTDEV, blkno);
-    memmove(b->data, pa + i * BSIZE, BSIZE);
-    bwrite(b);    // bypasses the log
+    memmove(b->data, pa + i*BSIZE, BSIZE);
+    bwrite(b);
     brelse(b);
   }
 }
-//.........................................................................................................................................................
 
-
-extern char data[];  // defined by kernel.ld
-pde_t *kpgdir;  // for use in scheduler()
-
-// Set up CPU's kernel segment descriptors.
-// Run once on entry on each CPU.
-void
-seginit(void)
-{
-  struct cpu *c;
-
-  // Map "logical" addresses to virtual addresses using identity map.
-  // Cannot share a CODE descriptor for both kernel and user
-  // because it would have to have DPL_USR, but the CPU forbids
-  // an interrupt from CPL=0 to DPL=3.
-  c = &cpus[cpuid()];
-  c->gdt[SEG_KCODE] = SEG(STA_X|STA_R, 0, 0xffffffff, 0);
-  c->gdt[SEG_KDATA] = SEG(STA_W, 0, 0xffffffff, 0);
-  c->gdt[SEG_UCODE] = SEG(STA_X|STA_R, 0, 0xffffffff, DPL_USER);
-  c->gdt[SEG_UDATA] = SEG(STA_W, 0, 0xffffffff, DPL_USER);
-  lgdt(c->gdt, sizeof(c->gdt));
-}
-
-// Return the address of the PTE in page table pgdir
-// that corresponds to virtual address va.  If alloc!=0,
-// create any required page table pages.
- pte_t *
-walkpgdir(pde_t *pgdir, const void *va, int alloc)//this should be not static i remove static keyword
-{
-  pde_t *pde;
-  pte_t *pgtab;
-
-  pde = &pgdir[PDX(va)];
-  if(*pde & PTE_P){
-    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
-  } else {
-    if(!alloc || (pgtab = (pte_t*)kalloc()) == 0)
-      return 0;
-    // Make sure all those PTE_P bits are zero.
-    memset(pgtab, 0, PGSIZE);
-    // The permissions here are overly generous, but they can
-    // be further restricted by the permissions in the page table
-    // entries, if necessary.
-    *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U;
-  }
-  return &pgtab[PTX(va)];
-}
-
-// Create PTEs for virtual addresses starting at va that refer to
-// physical addresses starting at pa. va and size might not
-// be page-aligned.
-static int
-mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
-{
-  char *a, *last;
-  pte_t *pte;
-
-  a = (char*)PGROUNDDOWN((uint)va);
-  last = (char*)PGROUNDDOWN(((uint)va) + size - 1);
-  for(;;){
-    if((pte = walkpgdir(pgdir, a, 1)) == 0)
-      return -1;
-    if(*pte & PTE_P)
-      panic("remap");
-    *pte = pa | perm | PTE_P;
-    if(a == last)
-      break;
-    a += PGSIZE;
-    pa += PGSIZE;
-  }
-  return 0;
-}
-
-// There is one page table per process, plus one that's used when
-// a CPU is not running any process (kpgdir). The kernel uses the
-// current process's page table during system calls and interrupts;
-// page protection bits prevent user code from using the kernel's
-// mappings.
-//
-// setupkvm() and exec() set up every page table like this:
-//
-//   0..KERNBASE: user memory (text+data+stack+heap), mapped to
-//                phys memory allocated by the kernel
-//   KERNBASE..KERNBASE+EXTMEM: mapped to 0..EXTMEM (for I/O space)
-//   KERNBASE+EXTMEM..data: mapped to EXTMEM..V2P(data)
-//                for the kernel's instructions and r/o data
-//   data..KERNBASE+PHYSTOP: mapped to V2P(data)..PHYSTOP,
-//                                  rw data + free physical memory
-//   0xfe000000..0: mapped direct (devices such as ioapic)
-//
-// The kernel allocates physical memory for its heap and for user memory
-// between V2P(end) and the end of physical memory (PHYSTOP)
-// (directly addressable from end..P2V(PHYSTOP)).
-
-// This table defines the kernel's mappings, which are present in
-// every process's page table.
-static struct kmap {
-  void *virt;
-  uint phys_start;
-  uint phys_end;
-  int perm;
-} kmap[] = {
- { (void*)KERNBASE, 0,             EXTMEM,    PTE_W}, // I/O space
- { (void*)KERNLINK, V2P(KERNLINK), V2P(data), 0},     // kern text+rodata
- { (void*)data,     V2P(data),     PHYSTOP,   PTE_W}, // kern data+memory
- { (void*)DEVSPACE, DEVSPACE,      0,         PTE_W}, // more devices
-};
-
-// Set up kernel part of a page table.
-pde_t*
-setupkvm(void)
-{
-  pde_t *pgdir;
-  struct kmap *k;
-
-  if((pgdir = (pde_t*)kalloc()) == 0)
-    return 0;
-  memset(pgdir, 0, PGSIZE);
-  if (P2V(PHYSTOP) > (void*)DEVSPACE)
-    panic("PHYSTOP too high");
-  for(k = kmap; k < &kmap[NELEM(kmap)]; k++)
-    if(mappages(pgdir, k->virt, k->phys_end - k->phys_start,
-                (uint)k->phys_start, k->perm) < 0) {
-      freevm(pgdir);
-      return 0;
-    }
-  return pgdir;
-}
-
-// Allocate one page table for the machine for the kernel address
-// space for scheduler processes.
-void
-kvmalloc(void)
-{
-  kpgdir = setupkvm();
-  switchkvm();
-}
-
-// Switch h/w page table register to the kernel-only page table,
-// for when no process is running.
-void
-switchkvm(void)
-{
-  lcr3(V2P(kpgdir));   // switch to the kernel page table
-}
-
-// Switch TSS and h/w page table to correspond to process p.
-void
-switchuvm(struct proc *p)
-{
-  if(p == 0)
-    panic("switchuvm: no process");
-  if(p->kstack == 0)
-    panic("switchuvm: no kstack");
-  if(p->pgdir == 0)
-    panic("switchuvm: no pgdir");
-
-  pushcli();
-  mycpu()->gdt[SEG_TSS] = SEG16(STS_T32A, &mycpu()->ts,
-                                sizeof(mycpu()->ts)-1, 0);
-  mycpu()->gdt[SEG_TSS].s = 0;
-  mycpu()->ts.ss0 = SEG_KDATA << 3;
-  mycpu()->ts.esp0 = (uint)p->kstack + KSTACKSIZE;
-  // setting IOPL=0 in eflags *and* iomb beyond the tss segment limit
-  // forbids I/O instructions (e.g., inb and outb) from user space
-  mycpu()->ts.iomb = (ushort) 0xFFFF;
-  ltr(SEG_TSS << 3);
-  lcr3(V2P(p->pgdir));  // switch to process's address space
-  popcli();
-}
-
-// Load the initcode into address 0 of pgdir.
-// sz must be less than a page.
-void
-inituvm(pde_t *pgdir, char *init, uint sz)
-{
-  char *mem;
-
-  if(sz >= PGSIZE)
-    panic("inituvm: more than a page");
-  mem = kalloc();
-  memset(mem, 0, PGSIZE);
-  mappages(pgdir, 0, PGSIZE, V2P(mem), PTE_W|PTE_U);
-  memmove(mem, init, sz);
-}
-
-// Load a program segment into pgdir.  addr must be page-aligned
-// and the pages from addr to addr+sz must already be mapped.
-int
-loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
-{
-  uint i, pa, n;
-  pte_t *pte;
-
-  if((uint) addr % PGSIZE != 0)
-    panic("loaduvm: addr must be page aligned");
-  for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walkpgdir(pgdir, addr+i, 0)) == 0)
-      panic("loaduvm: address should exist");
-    pa = PTE_ADDR(*pte);
-    if(sz - i < PGSIZE)
-      n = sz - i;
-    else
-      n = PGSIZE;
-    if(readi(ip, P2V(pa), offset+i, n) != n)
-      return -1;
-  }
-  return 0;
-}
-
-// Allocate page tables and physical memory to grow process from oldsz to
-// newsz, which need not be page aligned.  Returns new size or 0 on error.
-int
-allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
-{
-  char *mem;
-  uint a;
-
-  if(newsz >= KERNBASE)
-    return 0;
-  if(newsz < oldsz)
-    return oldsz;
-
-  a = PGROUNDUP(oldsz);
-  for(; a < newsz; a += PGSIZE){
-    mem = kalloc();
-    if(mem == 0){
-      
-      // out of RAM: evict some pages, then retry
-      swap_out_pages(Npg);      // Npg from your adaptive policy
-      // adapt threshold and Npg
-      Th  = Th  * (100 - BETA) / 100;                     // floor(Th * (1 - β/100))
-      Npg = (Npg * (100 + ALPHA) / 100 > Limit)     ? Limit  : (Npg * (100 + ALPHA) / 100);
-      mem = kalloc();
-      
-      if(mem==0) { 
-            cprintf("allocuvm out of memory\n");
-            deallocuvm(pgdir, newsz, oldsz);
-            return 0;
-      }
-    }
-    memset(mem, 0, PGSIZE); // Zero out the page to prevent leaking data from old processes
-    if(mappages(pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
-      cprintf("allocuvm out of memory (2)\n");
-      deallocuvm(pgdir, newsz, oldsz);
-      kfree(mem);
-      return 0;
-    }
-    //................
-    myproc()->rss++;
-    //................
-  
-  }
-  return newsz;
-}
-
-// Deallocate user pages to bring the process size from oldsz to
-// newsz.  oldsz and newsz need not be page-aligned, nor does newsz
-// need to be less than oldsz.  oldsz can be larger than the actual
-// process size.  Returns the new process size.
-int
-deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
-{
-  pte_t *pte;
-  uint a, pa;
-
-  if(newsz >= oldsz)
-    return oldsz;
-
-  a = PGROUNDUP(newsz);
-  for(; a  < oldsz; a += PGSIZE){
-    pte = walkpgdir(pgdir, (char*)a, 0);
-    if(!pte)
-      a = PGADDR(PDX(a) + 1, 0, 0) - PGSIZE;
-    else if((*pte & PTE_P) != 0){
-      pa = PTE_ADDR(*pte);
-      if(pa == 0)
-        panic("kfree");
-      char *v = P2V(pa);
-      kfree(v);
-      //...............
-      myproc()->rss--;
-      //................
-      *pte = 0;
-    }
-  }
-  return newsz;
-}
-
-// Free a page table and all the physical memory pages
-// in the user part.
-void
-freevm(pde_t *pgdir)
-{
-  uint i;
-
-  if(pgdir == 0)
-    panic("freevm: no pgdir");
-  deallocuvm(pgdir, KERNBASE, 0);
-  for(i = 0; i < NPDENTRIES; i++){
-    if(pgdir[i] & PTE_P){
-      char * v = P2V(PTE_ADDR(pgdir[i]));
-      kfree(v);
-    }
-  }
-  kfree((char*)pgdir);
-}
-
-// Clear PTE_U on a page. Used to create an inaccessible
-// page beneath the user stack.
-void
-clearpteu(pde_t *pgdir, char *uva)
-{
-  pte_t *pte;
-
-  pte = walkpgdir(pgdir, uva, 0);
-  if(pte == 0)
-    panic("clearpteu");
-  *pte &= ~PTE_U;
-}
-
-// Given a parent process's page table, create a copy
-// of it for a child.
-pde_t*
-copyuvm(pde_t *pgdir, uint sz)
-{
-  pde_t *d;
-  pte_t *pte;
-  uint pa, i, flags;
-  char *mem;
-
-  if((d = setupkvm()) == 0)
-    return 0;
-  for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
-      panic("copyuvm: pte should exist");
-    if(!(*pte & PTE_P))
-      panic("copyuvm: page not present");
-    pa = PTE_ADDR(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto bad;
-    memmove(mem, (char*)P2V(pa), PGSIZE);
-    if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0) {
-      kfree(mem);
-      goto bad;
-    }
-  }
-  return d;
-
-bad:
-  freevm(d);
-  return 0;
-}
-
-//PAGEBREAK!
-// Map user virtual address to kernel address.
-char*
-uva2ka(pde_t *pgdir, char *uva)
-{
-  pte_t *pte;
-
-  pte = walkpgdir(pgdir, uva, 0);
-  if((*pte & PTE_P) == 0)
-    return 0;
-  if((*pte & PTE_U) == 0)
-    return 0;
-  return (char*)P2V(PTE_ADDR(*pte));
-}
-
-// Copy len bytes from p to user address va in page table pgdir.
-// Most useful when pgdir is not the current page table.
-// uva2ka ensures this only works for PTE_U pages.
-int
-copyout(pde_t *pgdir, uint va, void *p, uint len)
-{
-  char *buf, *pa0;
-  uint n, va0;
-
-  buf = (char*)p;
-  while(len > 0){
-    va0 = (uint)PGROUNDDOWN(va);
-    pa0 = uva2ka(pgdir, (char*)va0);
-    if(pa0 == 0)
-      return -1;
-    n = PGSIZE - (va - va0);
-    if(n > len)
-      n = len;
-    memmove(pa0 + (va - va0), buf, n);
-    len -= n;
-    buf += n;
-    va = va0 + PGSIZE;
-  }
-  return 0;
-}
-
-
-//.........................................
-
-
-// struct {
-//   struct spinlock lock;
-//   struct proc proc[NPROC];
-// } ptable;
-
-
-// pick the process with largest rss; tie‐break by lower pid
-static struct proc*
-select_victim_proc(void)
-{
-  struct proc *best = 0;
-  acquire(&ptable.lock);
-  for(struct proc *p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-    if(p->state != RUNNING && p->state != RUNNABLE && p->state != SLEEPING)
-      continue;
-    if(p->pid < 1) continue;
-    if(!best || p->rss > best->rss ||  (p->rss == best->rss && p->pid < best->pid))
-    {
-      best = p;
-    }
-  }
-  release(&ptable.lock);
-  return best;
-}
-
-// scan victim's page table for a page with PTE_P set && PTE_A unset
-
-static uint
-select_victim_va(struct proc *victim)
-{
-  pde_t *pgdir = victim->pgdir;
-  for(uint va = 0; va < victim->sz; va += PGSIZE){
-    pde_t *pde = &pgdir[PDX(va)];
-    if(!(*pde & PTE_P)) continue;
-    pte_t *pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
-    pte_t *pte = &pgtab[PTX(va)];
-    if((*pte & PTE_P) && !(*pte & PTE_A))
-     { 
-      cprintf("victim va: %x\n", va);
-      return va;
-     } 
-  }
-  return (uint)-1;  // no suitable victim
-}
-
-
-// ----------------------------------------------------------------
-// Evict up to n pages by our RSS‐&‐cold‐page policy.
-// Caller must hold no locks (this routine grabs and releases ptable.lock).
-// ----------------------------------------------------------------
-// This function is called by the kernel to swap out pages when
-// the system is running low on memory. It selects a victim process
-// and a victim page within that process, and writes the page out
-// to swap space. The page is then unmapped and the physical memory
-// is freed. The function continues to swap out pages until either
-// the specified number of pages have been swapped out or there
-// are no more pages to swap out. The function also clears the
-// access bit of the page to ensure that it remains "cold" until
-// it is truly reused. The function uses a simple algorithm to
-
-static void
-swap_out_pages(int n)
-{
-  for(int i = 0; i < n; i++){
-    struct proc *p = select_victim_proc();
-    if(!p)             // no candidate process
-      break;
-
-    uint va = select_victim_va(p);
-    if(va == (uint)-1) // no cold page in that process
-      break;
-    cprintf("swapping out %d %s %x\n", p->pid, p->name, va);
-    // clear access so it stays “cold” until truly re‐used
-    pte_t *pte = walkpgdir(p->pgdir, (void*)va, 0);
-    int perm = *pte & 0xFFF;     // save permission bits
-    *pte &= ~PTE_A;
-
-    // allocate a slot and write page out
-    int slot = alloc_swap_slot(p->pid, va, perm);
-    write_swap_page(slot, (char*)P2V(PTE_ADDR(*pte)));
-
-    // unmap it and free the physical page
-    *pte &= ~PTE_P;
-    kfree((char*)P2V(PTE_ADDR(*pte)));
-    p->rss--;
-  }
-}
-
-
-
-// swap in a page from swap slot #slot into the process's page table
-// Read one 4 KiB page (8 blocks) from swap slot #slot into 'pa'
+// Read a 4KiB page (8 blocks) into pa
 static void
 read_swap_page(int slot, char *pa)
 {
@@ -613,73 +122,156 @@ read_swap_page(int slot, char *pa)
   }
 }
 
+// Select process with highest rss (tie: lower pid)
+static struct proc*
+select_victim_proc(void)
+{
+  struct proc *best = 0;
+  acquire(&ptable.lock);
+  for(struct proc *p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+    if(p->state!=RUNNING && p->state!=RUNNABLE && p->state!=SLEEPING)
+      continue;
+    if(p->pid < 1) continue;
+    if(!best || p->rss > best->rss || (p->rss==best->rss && p->pid<best->pid))
+      best = p;
+  }
+  release(&ptable.lock);
+  return best;
+}
 
-// Called from trap.c on T_PGFLT to page a swapped‐out VA back in.
+// Select a cold victim VA: PTE_P|PTE_U|PTE_W && !PTE_A
+static uint
+select_victim_va(struct proc *victim)
+{
+  pte_t *pte;
+  // pass 1: find cold writable page
+  for(uint va = 0; va < victim->sz; va += PGSIZE){
+    pde_t *pde = &victim->pgdir[PDX(va)];
+    if(!(*pde & PTE_P)) continue;
+    pte = (pte_t*)P2V(PTE_ADDR(*pde)) + PTX(va);
+    if((*pte & (PTE_P|PTE_U|PTE_W)) == (PTE_P|PTE_U|PTE_W)
+       && !(*pte & PTE_A))
+      return va;
+  }
+  // pass 2: clear A, then pick first writable
+  for(uint va = 0; va < victim->sz; va += PGSIZE){
+    pde_t *pde = &victim->pgdir[PDX(va)];
+    if(!(*pde & PTE_P)) continue;
+    pte = (pte_t*)P2V(PTE_ADDR(*pde)) + PTX(va);
+    if(*pte & (PTE_P|PTE_U|PTE_W))
+      *pte &= ~PTE_A;
+  }
+  for(uint va = 0; va < victim->sz; va += PGSIZE){
+    pde_t *pde = &victim->pgdir[PDX(va)];
+    if(!(*pde & PTE_P)) continue;
+    pte = (pte_t*)P2V(PTE_ADDR(*pde)) + PTX(va);
+    if(*pte & (PTE_P|PTE_U|PTE_W))
+      return va;
+  }
+  return (uint)-1;  // should not happen
+}
 
+// Evict up to n pages
+static void
+swap_out_pages(int n)
+{
+  for(int i = 0; i < n; i++){
+    struct proc *p = select_victim_proc();
+    if(!p) break;
+    uint va = select_victim_va(p);
+    if(va == (uint)-1) break;
+    pte_t *pte = walkpgdir(p->pgdir, (void*)va, 0);
+    int perm = *pte & 0xFFF;
+    *pte &= ~(PTE_P | PTE_U);
+    int slot = alloc_swap_slot(p->pid, va, perm);
+    write_swap_page(slot, (char*)P2V(PTE_ADDR(*pte)));
+    kfree((char*)P2V(PTE_ADDR(*pte)));
+    p->rss--;
+  }
+}
 
+// Page-fault handler: swap-in
 void
 handle_page_fault(uint fault_va)
 {
   uint va = PGROUNDDOWN(fault_va);
-  // find the swap slot for this pid and va
   int slot = -1;
   acquire(&swaplock);
-  for(int i = 0; i < NSPAGESLOTS; i++){
+  for(int i=0; i<NSPAGESLOTS; i++){
     if(!swap_table[i].is_free
-       && swap_table[i].pid == myproc()->pid
-       && swap_table[i].va  == va)
-    {
+       && swap_table[i].pid==myproc()->pid
+       && swap_table[i].va==va){
       slot = i;
       break;
     }
   }
-  if(slot < 0){
-    release(&swaplock);
-    panic("page fault on non-swapped page");
-  }
-  // grab metadata then free the slot
+  if(slot<0){ release(&swaplock); panic("page fault: not swapped"); }
   int perm = swap_table[slot].perm;
   swap_table[slot].is_free = 1;
   release(&swaplock);
-
-  // allocate a new physical page
   char *mem = kalloc();
-  if(mem == 0)
-    panic("handle_page_fault: kalloc failed");
-
-  // read contents back from disk
+  if(mem==0){
+    swap_out_pages(Npg);
+    mem = kalloc();
+    if(mem==0) panic("handle_page_fault: kalloc");
+  }
   read_swap_page(slot, mem);
-
-  // map it back into the page table
   if(mappages(myproc()->pgdir, (char*)va, PGSIZE,
-              V2P(mem), perm|PTE_P) != 0)
-    panic("handle_page_fault: mappages failed");
-
-  // bump RSS now that it’s resident again
+              V2P(mem), perm|PTE_P|PTE_U) != 0)
+    panic("handle_page_fault: mappages");
   myproc()->rss++;
 }
 
+// Allocate user memory from oldsz to newsz
+int
+allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
+{
+  char *mem;
+  uint a;
+  if(newsz >= KERNBASE) return 0;
+  if(newsz < oldsz) return oldsz;
+  a = PGROUNDUP(oldsz);
+  for(; a < newsz; a += PGSIZE){
+    mem = kalloc();
+    if(mem == 0){
+      cprintf("Current Threshold = %d, Swapping %d pages\n", Th, Npg);
+      swap_out_pages(Npg);
+      Th  = Th  * (100 - BETA) / 100;
+      Npg = (Npg * (100 + ALPHA) / 100 > Limit)
+              ? Limit
+              : (Npg * (100 + ALPHA) / 100);
+      mem = kalloc();
+      if(mem == 0){ deallocuvm(pgdir, newsz, oldsz); return 0; }
+    }
+    memset(mem, 0, PGSIZE);
+    if(mappages(pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
+      deallocuvm(pgdir, newsz, oldsz);
+      kfree(mem);
+      return 0;
+    }
+    myproc()->rss++;
+  }
+  return newsz;
+}
 
-//..........................................
-
-// int
-// count_pages(pagetable_t pagetable)
-// {
-//   int count = 0;
-//   for (uint64 va = 0; va < MAXVA; va += PGSIZE) {
-//     pte_t *pte = walk(pagetable, va, 0);
-//     if (pte && (*pte & PTE_V) && (*pte & PTE_U)) {
-//       count++;
-//     }
-//   }
-//   return count;
-// }
-
-//..............................................
-//PAGEBREAK!
-// Blank page.
-//PAGEBREAK!
-// Blank page.
-//PAGEBREAK!
-// Blank page.
-
+// Deallocate user pages
+int
+deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
+{
+  pte_t *pte;
+  uint a, pa;
+  if(newsz >= oldsz) return oldsz;
+  a = PGROUNDUP(newsz);
+  for(; a < oldsz; a += PGSIZE){
+    pte = walkpgdir(pgdir, (void*)a, 0);
+    if(!pte){ a = PGADDR(PDX(a)+1,0,0) - PGSIZE; continue; }
+    if(*pte & PTE_P){
+      pa = PTE_ADDR(*pte);
+      char *v = P2V(pa);
+      kfree(v);
+      myproc()->rss--;
+      *pte = 0;
+    }
+  }
+  return newsz;
+}

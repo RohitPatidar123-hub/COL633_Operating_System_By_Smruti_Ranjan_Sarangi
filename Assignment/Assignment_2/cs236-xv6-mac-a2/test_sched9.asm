@@ -8,7 +8,7 @@ Disassembly of section .text:
 #include "stat.h"
 #include "user.h"
 
-#define NUM_CHILDREN 8
+#define NUM_CHILDREN 4
 
 int main(void) {
    0:	8d 4c 24 04          	lea    0x4(%esp),%ecx
@@ -22,59 +22,55 @@ int main(void) {
     
     for (i = 0; i < NUM_CHILDREN; i++){
    f:	31 db                	xor    %ebx,%ebx
-  11:	8d 76 00             	lea    0x0(%esi),%esi
-        pid = custom_fork(1, 50);  // All delayed start, exec_time = 50
-  14:	83 ec 08             	sub    $0x8,%esp
-  17:	6a 32                	push   $0x32
-  19:	6a 01                	push   $0x1
-  1b:	e8 f7 02 00 00       	call   317 <custom_fork>
+        pid = custom_fork(0, 10);  // All delayed start, exec_time = 50
+  11:	83 ec 08             	sub    $0x8,%esp
+  14:	6a 0a                	push   $0xa
+  16:	6a 00                	push   $0x0
+  18:	e8 fa 02 00 00       	call   317 <custom_fork>
         if(pid < 0) {
-  20:	83 c4 10             	add    $0x10,%esp
-  23:	85 c0                	test   %eax,%eax
-  25:	78 5a                	js     81 <main+0x81>
+  1d:	83 c4 10             	add    $0x10,%esp
+  20:	85 c0                	test   %eax,%eax
+  22:	78 5d                	js     81 <main+0x81>
             printf(1, "Failed to fork child %d\n", i);
             exit();
         }
         if(pid == 0) {
-  27:	74 6b                	je     94 <main+0x94>
+  24:	74 6e                	je     94 <main+0x94>
     for (i = 0; i < NUM_CHILDREN; i++){
-  29:	43                   	inc    %ebx
-  2a:	83 fb 08             	cmp    $0x8,%ebx
-  2d:	75 e5                	jne    14 <main+0x14>
+  26:	43                   	inc    %ebx
+  27:	83 fb 04             	cmp    $0x4,%ebx
+  2a:	75 e5                	jne    11 <main+0x11>
             int j;
             for(j = 0; j < 100000000; j++) ;  // Busy loop to simulate work.
             exit();
         }
     }
     printf(1, "[Parent] All child processes created.\n");
-  2f:	52                   	push   %edx
-  30:	52                   	push   %edx
-  31:	68 d4 06 00 00       	push   $0x6d4
-  36:	6a 01                	push   $0x1
-  38:	e8 77 03 00 00       	call   3b4 <printf>
+  2c:	83 ec 08             	sub    $0x8,%esp
+  2f:	68 d4 06 00 00       	push   $0x6d4
+  34:	6a 01                	push   $0x1
+  36:	e8 79 03 00 00       	call   3b4 <printf>
     sleep(400);
-  3d:	c7 04 24 90 01 00 00 	movl   $0x190,(%esp)
-  44:	e8 b6 02 00 00       	call   2ff <sleep>
+  3b:	c7 04 24 90 01 00 00 	movl   $0x190,(%esp)
+  42:	e8 b8 02 00 00       	call   2ff <sleep>
     printf(1, "[Parent] Calling scheduler_start()\n");
-  49:	59                   	pop    %ecx
-  4a:	58                   	pop    %eax
-  4b:	68 fc 06 00 00       	push   $0x6fc
-  50:	6a 01                	push   $0x1
-  52:	e8 5d 03 00 00       	call   3b4 <printf>
+  47:	58                   	pop    %eax
+  48:	5a                   	pop    %edx
+  49:	68 fc 06 00 00       	push   $0x6fc
+  4e:	6a 01                	push   $0x1
+  50:	e8 5f 03 00 00       	call   3b4 <printf>
     scheduler_start();
-  57:	e8 c3 02 00 00       	call   31f <scheduler_start>
-  5c:	83 c4 10             	add    $0x10,%esp
+  55:	e8 c5 02 00 00       	call   31f <scheduler_start>
     for(i = 0; i < NUM_CHILDREN; i++){
         wait();
+  5a:	e8 18 02 00 00       	call   277 <wait>
   5f:	e8 13 02 00 00       	call   277 <wait>
   64:	e8 0e 02 00 00       	call   277 <wait>
-    for(i = 0; i < NUM_CHILDREN; i++){
-  69:	83 eb 02             	sub    $0x2,%ebx
-  6c:	75 f1                	jne    5f <main+0x5f>
+  69:	e8 09 02 00 00       	call   277 <wait>
     }
     printf(1, "[Parent] All child processes completed.\n");
-  6e:	50                   	push   %eax
-  6f:	50                   	push   %eax
+  6e:	59                   	pop    %ecx
+  6f:	5b                   	pop    %ebx
   70:	68 20 07 00 00       	push   $0x720
   75:	6a 01                	push   $0x1
   77:	e8 38 03 00 00       	call   3b4 <printf>

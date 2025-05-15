@@ -185,6 +185,8 @@ UPROGS=\
 	_test2\
 	_test3\
 	_test4\
+	_test5\
+	_test6\
 	_memtest\
 
 fs.img: mkfs README $(UPROGS)
